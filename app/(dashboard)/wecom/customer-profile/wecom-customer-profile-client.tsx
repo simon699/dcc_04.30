@@ -1,11 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { ArrowLeft, MessageCircle, Phone, UserRound } from "lucide-react";
-import Link from "next/link";
+import { MessageCircle, Phone, UserRound } from "lucide-react";
 import { toast } from "sonner";
 
-import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -25,7 +23,6 @@ import {
   getLeadDetailDisplay,
   getLeadFollowRecords,
 } from "@/lib/mock-data";
-import { cn } from "@/lib/utils";
 
 export function WecomCustomerProfileClient({ leadId }: { leadId?: string }) {
   const lead = getLead(leadId ?? "l1") ?? getLead("l1");
@@ -42,17 +39,6 @@ export function WecomCustomerProfileClient({ leadId }: { leadId?: string }) {
 
   return (
     <div className="mx-auto w-full max-w-md space-y-4 pb-6">
-      <div className="flex items-center justify-between">
-        <Link
-          href="/wecom"
-          className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-1 pl-0")}
-        >
-          <ArrowLeft className="size-4" />
-          返回企微工作台
-        </Link>
-        <Badge variant="outline">H5预览</Badge>
-      </div>
-
       <Card>
         <CardContent className="pt-5">
           <div className="flex items-start gap-3">

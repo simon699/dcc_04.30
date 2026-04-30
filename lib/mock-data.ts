@@ -356,12 +356,13 @@ export function getLeadDetailDisplay(lead: Lead): {
   nextContactAt: string;
 } {
   const h = hashLeadId(lead.id);
+  const baseTs = new Date(lead.updatedAt).getTime();
   const createdAt =
     lead.createdAt ??
-    new Date(Date.now() - (h % 20 + 1) * 86400000).toISOString();
+    new Date(baseTs - (h % 20 + 1) * 86400000).toISOString();
   const nextFollowUpAt =
     lead.nextFollowUpAt ??
-    new Date(Date.now() + (h % 5 + 1) * 86400000).toISOString();
+    new Date(baseTs + (h % 5 + 1) * 86400000).toISOString();
   const inviteStoreAt = new Date(
     new Date(nextFollowUpAt).getTime() + 2 * 86400000
   ).toISOString();
@@ -393,7 +394,7 @@ export function getLeadFollowRecords(leadId: string): LeadFollowRecord[] {
   const lead = getLead(leadId);
   if (!lead) return [];
   const h = hashLeadId(leadId);
-  const now = Date.now();
+  const now = new Date(lead.updatedAt).getTime();
   const records: LeadFollowRecord[] = [
     {
       id: `${leadId}-r1`,
