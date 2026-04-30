@@ -1,0 +1,90 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import {
+  BookUser,
+  CheckSquare,
+  LayoutDashboard,
+  Settings2,
+  Sparkles,
+} from "lucide-react";
+
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarRail,
+  SidebarSeparator,
+} from "@/components/ui/sidebar";
+
+const nav = [
+  { href: "/panel", label: "工作面板", icon: LayoutDashboard },
+  { href: "/tasks", label: "任务中心", icon: CheckSquare },
+  { href: "/leads", label: "线索库", icon: BookUser },
+  { href: "/rules", label: "设置", icon: Settings2 },
+] as const;
+
+export function AppSidebar() {
+  const pathname = usePathname();
+
+  return (
+    <Sidebar collapsible="icon">
+      <SidebarHeader className="border-b border-sidebar-border px-2 py-3">
+        <div className="flex items-center gap-2 px-2 group-data-[collapsible=icon]:justify-center">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <Sparkles className="size-4" aria-hidden />
+          </div>
+          <div className="flex min-w-0 flex-col group-data-[collapsible=icon]:hidden">
+            <span className="truncate text-sm font-semibold tracking-tight">
+              DCC 线索运营
+            </span>
+            <span className="truncate text-xs text-muted-foreground">
+              Demo
+            </span>
+          </div>
+        </div>
+      </SidebarHeader>
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupLabel>导航</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {nav.map((item) => {
+                const active =
+                  pathname === item.href ||
+                  (item.href !== "/panel" && pathname.startsWith(item.href));
+                return (
+                  <SidebarMenuItem key={item.href}>
+                    <SidebarMenuButton
+                      isActive={active}
+                      tooltip={item.label}
+                      render={
+                        <Link href={item.href}>
+                          <item.icon aria-hidden />
+                          <span>{item.label}</span>
+                        </Link>
+                      }
+                    />
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+      <SidebarSeparator />
+      <SidebarFooter className="p-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
+        <p className="px-2 leading-relaxed">纯前端演示 · 数据为模拟</p>
+      </SidebarFooter>
+      <SidebarRail />
+    </Sidebar>
+  );
+}
