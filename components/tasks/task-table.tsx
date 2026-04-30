@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import { MessageCircle, Phone } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -188,7 +187,6 @@ function buildPhoneGroupRows(): CustomerTaskRow[] {
 }
 
 export function TaskTable() {
-  const router = useRouter();
   const openDrawer = useUiStore((s) => s.openDrawer);
   const [tab, setTab] = React.useState<Filter>("all");
   const [keyword, setKeyword] = React.useState("");
@@ -329,7 +327,9 @@ export function TaskTable() {
                     </button>
                     {task.channel === "wecom" ? (
                       <p className="mt-1 text-xs text-muted-foreground">
-                        多客户汇总：{getWecomTaskPanelDetail(task).customerTotal} 人
+                        {getWecomTaskPanelDetail(task).tagKind === "followup"
+                          ? "单客户跟进任务"
+                          : `多客户汇总：${getWecomTaskPanelDetail(task).customerTotal} 人`}
                       </p>
                     ) : task.id.startsWith("phone-group-") ? (
                       <p className="mt-1 text-xs text-muted-foreground">
@@ -388,7 +388,11 @@ export function TaskTable() {
                           variant="default"
                           className="gap-1"
                           onClick={() =>
-                            router.push(`/wecom?taskId=${task.id}`)
+                            openDrawer({
+                              type: "wecom_profile",
+                              leadId: row.leadId,
+                              autoOpenFollow: true,
+                            })
                           }
                           aria-label="企微跟进"
                         >

@@ -8,13 +8,6 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -24,9 +17,15 @@ import {
   getLeadFollowRecords,
 } from "@/lib/mock-data";
 
-export function WecomCustomerProfileClient({ leadId }: { leadId?: string }) {
+export function WecomCustomerProfileClient({
+  leadId,
+  autoOpenFollow = false,
+}: {
+  leadId?: string;
+  autoOpenFollow?: boolean;
+}) {
   const lead = getLead(leadId ?? "l1") ?? getLead("l1");
-  const [followOpen, setFollowOpen] = React.useState(false);
+  const [followOpen, setFollowOpen] = React.useState(autoOpenFollow);
   const [followNote, setFollowNote] = React.useState("");
   const [nextFollowAt, setNextFollowAt] = React.useState("");
 
@@ -151,13 +150,13 @@ export function WecomCustomerProfileClient({ leadId }: { leadId?: string }) {
         </TabsContent>
       </Tabs>
 
-      <Sheet open={followOpen} onOpenChange={setFollowOpen}>
-        <SheetContent side="bottom" className="h-[70vh] max-h-[70vh] rounded-t-2xl p-0">
-          <SheetHeader className="border-b px-4 py-3 text-left">
-            <SheetTitle>跟进处理</SheetTitle>
-            <SheetDescription>电话和跟进都在此处补充记录</SheetDescription>
-          </SheetHeader>
-          <div className="h-full overflow-y-auto px-4 py-4">
+      {followOpen ? (
+        <div className="h-[70vh] max-h-[70vh] rounded-t-2xl border bg-background">
+          <div className="border-b px-4 py-3 text-left">
+            <h3 className="text-base font-medium">跟进处理</h3>
+            <p className="text-sm text-muted-foreground">电话和跟进都在此处补充记录</p>
+          </div>
+          <div className="h-[calc(70vh-57px)] overflow-y-auto px-4 py-4">
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="h5-next">下次跟进时间</Label>
@@ -178,7 +177,10 @@ export function WecomCustomerProfileClient({ leadId }: { leadId?: string }) {
                   placeholder="输入本次沟通内容、客户反馈、下一步动作"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
+                <Button variant="outline" onClick={() => setFollowOpen(false)}>
+                  收起
+                </Button>
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -194,13 +196,13 @@ export function WecomCustomerProfileClient({ leadId }: { leadId?: string }) {
                     setFollowOpen(false);
                   }}
                 >
-                  保存跟进
+                  保存
                 </Button>
               </div>
             </div>
           </div>
-        </SheetContent>
-      </Sheet>
+        </div>
+      ) : null}
     </div>
   );
 }

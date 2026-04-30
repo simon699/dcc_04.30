@@ -1,11 +1,20 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ExternalLink, MessageCircle, Phone } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Sheet,
   SheetContent,
@@ -31,6 +40,9 @@ import {
 import { useUiStore } from "@/lib/store/ui-store";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { WecomCustomerProfileClient } from "@/app/(dashboard)/wecom/customer-profile/wecom-customer-profile-client";
+
+const ASSIGNABLE_OWNERS = ["王销售", "刘顾问", "赵顾问", "陈专员"] as const;
 
 export function DetailDrawer() {
   const router = useRouter();
@@ -41,6 +53,10 @@ export function DetailDrawer() {
 
   const task =
     drawerPayload?.type === "task" ? getTask(drawerPayload.id) : undefined;
+  const isWecomProfileDrawer = drawerPayload?.type === "wecom_profile";
+  const drawerWidthClass = isWecomProfileDrawer
+    ? "flex h-full w-full max-w-full flex-col gap-0 p-0 sm:!w-[420px] sm:!max-w-[420px]"
+    : "flex h-full w-full max-w-full flex-col gap-0 p-0 sm:!w-[50vw] sm:!max-w-[50vw]";
   const phoneGroupKey =
     drawerPayload?.type === "task" && drawerPayload.phoneGroupKey
       ? (drawerPayload.phoneGroupKey as FollowBucketKey)
@@ -54,6 +70,8 @@ export function DetailDrawer() {
       ? drawerPayload.id
       : drawerPayload?.type === "task"
         ? drawerPayload.currentLeadId ?? task?.leadId
+        : drawerPayload?.type === "wecom_profile"
+          ? drawerPayload.leadId
         : undefined;
 
   const displayLead = leadId ? getLead(leadId) : undefined;
@@ -61,6 +79,8 @@ export function DetailDrawer() {
   const title =
     drawerPayload?.type === "lead"
       ? displayLead?.name ?? "线索"
+      : drawerPayload?.type === "wecom_profile"
+        ? "客户画像"
       : isPhoneGroupTask
         ? getFollowBucketLabel(phoneGroupKey as FollowBucketKey)
         : task?.title ?? "任务";
@@ -81,20 +101,44 @@ export function DetailDrawer() {
       : undefined;
   const leadDetail = displayLead ? getLeadDetailDisplay(displayLead) : null;
   const leadFollowRecords = displayLead ? getLeadFollowRecords(displayLead.id) : [];
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [selectedOwner, setSelectedOwner] = useState("");
+  const [hasFriendRelation, setHasFriendRelation] = useState<boolean | null>(null);
+
+  function openAssignDialog() {
+    setAssignOpen(true);
+    setSelectedOwner("");
+    setHasFriendRelation(null);
+  }
+
+  function chooseOwner(owner: string) {
+    setSelectedOwner(owner);
+    setHasFriendRelation(Math.random() > 0.5);
+  }
 
   return (
     <Sheet open={drawerOpen} onOpenChange={(o) => !o && closeDrawer()}>
-      <SheetContent className="flex h-full w-full max-w-full flex-col gap-0 p-0 sm:!w-[50vw] sm:!max-w-[50vw]">
+      <SheetContent className={drawerWidthClass}>
         <SheetHeader className="border-b px-6 py-4 text-left">
           <SheetTitle className="pr-8 leading-snug">{title}</SheetTitle>
           <SheetDescription className="text-left">
             {drawerPayload?.type === "task"
               ? "任务详情 · 列表上下文保留在左侧"
+              : drawerPayload?.type === "wecom_profile"
+                ? "企微侧边栏 · 客户画像"
               : "线索详情 · 列表上下文保留在左侧"}
           </SheetDescription>
         </SheetHeader>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+          {isWecomProfileDrawer ? (
+            <div className="px-0 py-0">
+              <WecomCustomerProfileClient
+                leadId={drawerPayload.leadId}
+                autoOpenFollow={drawerPayload.autoOpenFollow}
+              />
+            </div>
+          ) : null}
           {drawerPayload?.type === "lead" && displayLead ? (
             <div className="space-y-4">
               <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
@@ -184,7 +228,7 @@ export function DetailDrawer() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => toast.message(`分配 ${displayLead.name} 线索（演示）`)}
+                    onClick={openAssignDialog}
                   >
                     分配线索
                   </Button>
@@ -314,30 +358,60 @@ export function DetailDrawer() {
                         {wecomDetail.sendContent}
                       </dd>
                     </div>
-                    <div>
-                      <dt className="text-muted-foreground">未完成客户</dt>
-                      <dd className="mt-1 text-sm">
-                        {wecomDetail.pendingCustomers.length > 0
-                          ? wecomDetail.pendingCustomers.join("、")
-                          : "暂无"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-muted-foreground">已完成客户</dt>
-                      <dd className="mt-1 text-sm">
-                        {wecomDetail.doneCustomers.length > 0
-                          ? wecomDetail.doneCustomers.join("、")
-                          : "暂无"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-muted-foreground">发送失败客户</dt>
-                      <dd className="mt-1 text-sm">
-                        {wecomDetail.failedCustomers.length > 0
-                          ? wecomDetail.failedCustomers.join("、")
-                          : "暂无"}
-                      </dd>
-                    </div>
+                    {wecomDetail.tagKind === "followup" ? (
+                      <>
+                        <div>
+                          <dt className="text-muted-foreground">客户</dt>
+                          <dd className="mt-1 text-sm">
+                            {currentCustomerName ??
+                              wecomDetail.pendingCustomers[0] ??
+                              wecomDetail.doneCustomers[0] ??
+                              "—"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-muted-foreground">状态</dt>
+                          <dd className="mt-1 text-sm">
+                            {currentCustomerStatus === "done"
+                              ? "已完成"
+                              : currentCustomerStatus === "failed"
+                                ? "发送失败"
+                                : currentCustomerStatus === "pending"
+                                  ? "未完成"
+                                  : task.status === "done"
+                                    ? "已完成"
+                                    : "未完成"}
+                          </dd>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div>
+                          <dt className="text-muted-foreground">未完成客户</dt>
+                          <dd className="mt-1 text-sm">
+                            {wecomDetail.pendingCustomers.length > 0
+                              ? wecomDetail.pendingCustomers.join("、")
+                              : "暂无"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-muted-foreground">已完成客户</dt>
+                          <dd className="mt-1 text-sm">
+                            {wecomDetail.doneCustomers.length > 0
+                              ? wecomDetail.doneCustomers.join("、")
+                              : "暂无"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-muted-foreground">发送失败客户</dt>
+                          <dd className="mt-1 text-sm">
+                            {wecomDetail.failedCustomers.length > 0
+                              ? wecomDetail.failedCustomers.join("、")
+                              : "暂无"}
+                          </dd>
+                        </div>
+                      </>
+                    )}
                     <div>
                       <dt className="text-muted-foreground">关联线索</dt>
                       <dd>{currentCustomerLead?.name ?? currentCustomerName ?? "—"}</dd>
@@ -434,30 +508,6 @@ export function DetailDrawer() {
         </div>
 
         <div className="border-t px-6 py-4">
-          {drawerPayload?.type === "task" && task?.channel === "wecom" ? (
-            <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <Button
-                className="w-full"
-                onClick={() => {
-                  toast.success(
-                    `已对${currentCustomerName ?? "当前客户"}发起发送（演示）`
-                  );
-                }}
-              >
-                对当前人发送
-              </Button>
-              <Button
-                variant="secondary"
-                className="w-full"
-                onClick={() => {
-                  const unsentCount = wecomDetail?.pendingCustomers.length ?? 0;
-                  toast.success(`已向 ${unsentCount} 位未发送客户发起发送（演示）`);
-                }}
-              >
-                未发送的都发送
-              </Button>
-            </div>
-          ) : null}
           <div className="mb-2 flex flex-col gap-2 sm:flex-row">
             {drawerPayload?.type === "task" &&
             (task?.leadId || currentCustomerLead?.id || drawerPayload.currentLeadId) ? (
@@ -532,6 +582,56 @@ export function DetailDrawer() {
           </Button>
         </div>
       </SheetContent>
+      <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>分配线索</DialogTitle>
+            <DialogDescription>
+              为 {displayLead?.name ?? "当前客户"} 选择转交人员
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label className="text-sm text-muted-foreground">电销专员</label>
+            <select
+              value={selectedOwner}
+              onChange={(e) => chooseOwner(e.target.value)}
+              className={cn(
+                "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs",
+                "focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+              )}
+            >
+              <option value="">请选择人员</option>
+              {ASSIGNABLE_OWNERS.map((owner) => (
+                <option key={owner} value={owner}>
+                  {owner}
+                </option>
+              ))}
+            </select>
+            {hasFriendRelation === false ? (
+              <p className="text-sm text-destructive">
+                该电销专员与客户无好友关系，需要添加好友关系后，才能转交线索。
+              </p>
+            ) : null}
+            {hasFriendRelation === true ? (
+              <p className="text-sm text-emerald-600">已检测到好友关系，可进行转交。</p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAssignOpen(false)}>
+              取消
+            </Button>
+            <Button
+              disabled={!selectedOwner || hasFriendRelation !== true}
+              onClick={() => {
+                toast.success(`已将 ${displayLead?.name ?? "该客户"} 转交给 ${selectedOwner}（演示）`);
+                setAssignOpen(false);
+              }}
+            >
+              确认转交
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Sheet>
   );
 }

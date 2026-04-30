@@ -8,7 +8,6 @@ import {
   MessageCircle,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -45,6 +44,20 @@ function formatDue(dueAt: string): string {
 function taskProgressLine(task: Task): string {
   const d = getWecomTaskPanelDetail(task);
   return `${d.sentCount}/${d.customerTotal}（${d.sendPercent}%）`;
+}
+
+function followupSinglePerson(task: Task): {
+  person: string;
+  completed: boolean;
+} {
+  const d = getWecomTaskPanelDetail(task);
+  const person =
+    d.pendingCustomers[0] ??
+    d.doneCustomers[0] ??
+    d.failedCustomers[0] ??
+    "—";
+  const completed = d.doneCustomers.includes(person);
+  return { person, completed };
 }
 
 export function TodayWecomTasks() {
@@ -152,19 +165,38 @@ export function TodayWecomTasks() {
                       {new Date(detail.dueAt).toLocaleString("zh-CN")}
                     </dd>
                   </div>
-                  <div>
-                    <dt className="text-muted-foreground">客户总数</dt>
-                    <dd className="mt-1 font-medium tabular-nums">
-                      {detail.customerTotal}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground">发送进度</dt>
-                    <dd className="mt-1 font-medium tabular-nums">
-                      {detail.sentCount}/{detail.customerTotal}（
-                      {detail.sendPercent}%）
-                    </dd>
-                  </div>
+                  {detail.tagKind === "followup" ? (
+                    <>
+                      <div>
+                        <dt className="text-muted-foreground">待跟进人</dt>
+                        <dd className="mt-1 font-medium">
+                          {followupSinglePerson(activeTask).person}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">是否完成</dt>
+                        <dd className="mt-1 font-medium">
+                          {followupSinglePerson(activeTask).completed ? "已完成" : "未完成"}
+                        </dd>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <dt className="text-muted-foreground">客户总数</dt>
+                        <dd className="mt-1 font-medium tabular-nums">
+                          {detail.customerTotal}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">发送进度</dt>
+                        <dd className="mt-1 font-medium tabular-nums">
+                          {detail.sentCount}/{detail.customerTotal}（
+                          {detail.sendPercent}%）
+                        </dd>
+                      </div>
+                    </>
+                  )}
                 </dl>
 
                 <div>
@@ -176,59 +208,52 @@ export function TodayWecomTasks() {
                   </p>
                 </div>
 
-                <Separator />
-
-                <CustomerBlock
-                  title="未完成客户"
-                  names={detail.pendingCustomers}
-                  empty="暂无"
-                  open={openGroups.pending}
-                  onToggle={() =>
-                    setOpenGroups((prev) => ({
-                      ...prev,
-                      pending: !prev.pending,
-                    }))
-                  }
-                />
-                <CustomerBlock
-                  title="已完成客户"
-                  names={detail.doneCustomers}
-                  empty="暂无"
-                  open={openGroups.done}
-                  onToggle={() =>
-                    setOpenGroups((prev) => ({
-                      ...prev,
-                      done: !prev.done,
-                    }))
-                  }
-                />
-                <CustomerBlock
-                  title="发送失败客户"
-                  names={detail.failedCustomers}
-                  empty="暂无"
-                  open={openGroups.failed}
-                  onToggle={() =>
-                    setOpenGroups((prev) => ({
-                      ...prev,
-                      failed: !prev.failed,
-                    }))
-                  }
-                />
+                {detail.tagKind === "mass" ? (
+                  <>
+                    <Separator />
+                    <CustomerBlock
+                      title="未完成客户"
+                      names={detail.pendingCustomers}
+                      empty="暂无"
+                      open={openGroups.pending}
+                      onToggle={() =>
+                        setOpenGroups((prev) => ({
+                          ...prev,
+                          pending: !prev.pending,
+                        }))
+                      }
+                    />
+                    <CustomerBlock
+                      title="已完成客户"
+                      names={detail.doneCustomers}
+                      empty="暂无"
+                      open={openGroups.done}
+                      onToggle={() =>
+                        setOpenGroups((prev) => ({
+                          ...prev,
+                          done: !prev.done,
+                        }))
+                      }
+                    />
+                    <CustomerBlock
+                      title="发送失败客户"
+                      names={detail.failedCustomers}
+                      empty="暂无"
+                      open={openGroups.failed}
+                      onToggle={() =>
+                        setOpenGroups((prev) => ({
+                          ...prev,
+                          failed: !prev.failed,
+                        }))
+                      }
+                    />
+                  </>
+                ) : null}
               </div>
             </div>
           ) : null}
 
           <div className="mt-auto border-t px-6 py-4">
-            {activeTask ? (
-              <Button
-                className="mb-2 w-full"
-                onClick={() => {
-                  toast.success("已开始发送（演示）");
-                }}
-              >
-                发送
-              </Button>
-            ) : null}
             {activeTask ? (
               <Button
                 variant="outline"
@@ -330,6 +355,7 @@ function TaskListBody({
     <ul className="divide-y divide-border/60">
       {tasks.map((task) => {
         const tag = wecomTaskDisplayTag(task.id);
+        const single = tag.kind === "followup" ? followupSinglePerson(task) : null;
         return (
           <li key={task.id}>
             <button
@@ -355,9 +381,20 @@ function TaskListBody({
                   </div>
                   <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-muted-foreground sm:text-sm">
                     <span>截止 {formatDue(task.dueAt)}</span>
-                    <span className="tabular-nums text-foreground">
-                      任务进度：{taskProgressLine(task)}
-                    </span>
+                    {tag.kind === "followup" ? (
+                      <>
+                        <span className="text-foreground">
+                          待跟进人：{single?.person ?? "—"}
+                        </span>
+                        <span className="text-foreground">
+                          是否完成：{single?.completed ? "已完成" : "未完成"}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="tabular-nums text-foreground">
+                        任务进度：{taskProgressLine(task)}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <span

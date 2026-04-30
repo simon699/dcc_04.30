@@ -26,9 +26,9 @@ import {
 } from "@/components/ui/sidebar";
 
 const nav = [
-  { href: "/panel", label: "工作面板", icon: LayoutDashboard },
+  { href: "/panel", label: "工作台", icon: LayoutDashboard },
   { href: "/tasks", label: "任务中心", icon: CheckSquare },
-  { href: "/leads", label: "线索库", icon: BookUser },
+  { href: "/leads", label: "线索中心", icon: BookUser },
   { href: "/rules", label: "设置", icon: Settings2 },
 ] as const;
 
@@ -81,9 +81,6 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
       <SidebarSeparator />
-      <SidebarFooter className="p-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
-        <p className="px-2 leading-relaxed">纯前端演示 · 数据为模拟</p>
-      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   );

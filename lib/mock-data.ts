@@ -606,6 +606,34 @@ export interface WecomTaskPanelDetail {
 export function getWecomTaskPanelDetail(task: Task): WecomTaskPanelDetail {
   const { label: tagLabel, kind: tagKind } = wecomTaskDisplayTag(task.id);
   const seed = hashTaskId(task.id);
+  const leadName = getLead(task.leadId)?.name ?? WECOM_DEMO_CUSTOMER_NAMES[seed % WECOM_DEMO_CUSTOMER_NAMES.length];
+
+  if (tagKind === "followup") {
+    const isDone = task.status === "done";
+    const pendingCustomers = isDone ? [] : [leadName];
+    const doneCustomers = isDone ? [leadName] : [];
+    const failedCustomers: string[] = [];
+    const customerTotal = 1;
+    const sentCount = doneCustomers.length;
+    const sendPercent = isDone ? 100 : 0;
+    const baseContent =
+      task.description ??
+      "（演示）请根据客户最新反馈进行一对一跟进沟通。";
+
+    return {
+      tagLabel,
+      tagKind,
+      title: task.title,
+      dueAt: task.dueAt,
+      customerTotal,
+      sentCount,
+      sendPercent,
+      sendContent: `${baseContent}\n\n跟进说明：该任务固定关联单一客户，按节点完成跟进（演示）。`,
+      pendingCustomers,
+      doneCustomers,
+      failedCustomers,
+    };
+  }
 
   const customerTotal = Math.max(5, 15 + (seed % 26));
   const failedCount = Math.min(4, seed % 5);

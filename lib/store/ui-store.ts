@@ -15,6 +15,11 @@ export type DrawerPayload =
       currentLeadId?: string;
       currentCustomerName?: string;
       currentCustomerStatus?: "pending" | "done" | "failed";
+    }
+  | {
+      type: "wecom_profile";
+      leadId?: string;
+      autoOpenFollow?: boolean;
     };
 
 interface UiState {

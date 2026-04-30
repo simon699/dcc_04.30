@@ -28,7 +28,7 @@ export default function PanelPage() {
         <Card className="border-border/60 shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between pb-3">
             <div>
-              <CardTitle>今日待跟进线索</CardTitle>
+              <CardTitle>今日待跟进电话线索</CardTitle>
             </div>
             <Link
               href="/leads"
@@ -48,13 +48,6 @@ export default function PanelPage() {
             <div>
               <CardTitle>今日待完成企微任务</CardTitle>
             </div>
-            <Link
-              href="/tasks"
-              className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-1")}
-            >
-              任务中心
-              <ArrowRight className="size-4" />
-            </Link>
           </CardHeader>
           <CardContent className="pt-0">
             <TodayWecomTasks />

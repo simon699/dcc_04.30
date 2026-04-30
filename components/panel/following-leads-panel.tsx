@@ -24,7 +24,6 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   type FollowBucketKey,
-  type ContactModeTab,
   type LeadContactReach,
   contactReachLabel,
   getDemoLeadRowDisplay,
@@ -38,8 +37,6 @@ import {
 import { cn } from "@/lib/utils";
 
 import { TodayCallLog } from "@/components/panel/today-call-log";
-
-type ContactTab = ContactModeTab;
 
 /** 侧拉宽度约为视口 50%，表格信息更易完整展示 */
 const SHEET_WIDE =
@@ -109,12 +106,17 @@ function MatrixSheetRowActions({ lead }: { lead: Lead }) {
 
 export function FollowingLeadsPanel() {
   const router = useRouter();
-  const [contactTab, setContactTab] = React.useState<ContactTab>("phone");
 
   const [selected, setSelected] = React.useState<Set<FollowBucketKey>>(() => {
-    const s = new Set<FollowBucketKey>();
-    s.add("live_stream");
-    return s;
+    return new Set<FollowBucketKey>([
+      "priority",
+      "vertical_media",
+      "live_stream",
+      "new_lead",
+      "activation",
+      "revisit",
+      "outbound",
+    ]);
   });
   const [callLogs, setCallLogs] = React.useState<TodayCallLogEntry[]>(() =>
     getInitialTodayCallLogs()
@@ -126,13 +128,7 @@ export function FollowingLeadsPanel() {
 
   const [callLogOpen, setCallLogOpen] = React.useState(false);
 
-  const [wecomSheetOpen, setWecomSheetOpen] = React.useState(false);
-  const [wecomRows, setWecomRows] = React.useState<Lead[]>([]);
-
-  const matrixRows = React.useMemo(
-    () => getFollowingLeadMatrix(contactTab),
-    [contactTab]
-  );
+  const matrixRows = React.useMemo(() => getFollowingLeadMatrix("phone"), []);
 
   function toggleBucket(key: FollowBucketKey) {
     setSelected((prev) => {
@@ -148,7 +144,7 @@ export function FollowingLeadsPanel() {
     overdue: boolean,
     bucketLabel: string
   ) {
-    const leads = getMatrixCellLeads(bucketKey, overdue, contactTab);
+    const leads = getMatrixCellLeads(bucketKey, overdue, "phone");
     setSheetRows(leads);
     setSheetTitle(
       `${bucketLabel} · ${overdue ? "逾期" : "未逾期"}（${leads.length}）`
@@ -192,110 +188,37 @@ export function FollowingLeadsPanel() {
     toast.success(`已对 ${leads.length} 位客户发起外呼（演示）`);
   }
 
-  function openWecomContactList() {
-    if (selected.size === 0) {
-      toast.message("请先勾选左侧分类");
-      return;
-    }
-    const leads = getFollowingLeadsInBuckets(selected, "wecom");
-    if (leads.length === 0) {
-      toast.message("所选分类下暂无可企微联系线索（演示：部分线索仅支持电话）");
-      return;
-    }
-    setWecomRows(leads);
-    setWecomSheetOpen(true);
-  }
-
   return (
     <>
       <div className="space-y-3">
-        <Tabs
-          value={contactTab}
-          onValueChange={(v) => setContactTab(v as ContactTab)}
-          className="w-full"
-        >
-          <TabsList
-            variant="line"
-            className="mb-1 h-auto w-full flex-wrap justify-start gap-1 bg-transparent p-0"
-          >
-            <TabsTrigger value="phone" className="px-3 py-2">
-              电话联系线索
-            </TabsTrigger>
-            <TabsTrigger value="wecom" className="px-3 py-2">
-              企微联系线索
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-
-        {contactTab === "phone" ? (
-          <div className="flex w-full items-center gap-3 sm:gap-4">
-            <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
-              <button
-                type="button"
-                onClick={startOutboundCall}
-                className={cn(
-                  "flex size-14 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg",
-                  "transition-colors hover:bg-emerald-700",
-                  "focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:ring-offset-2 focus-visible:outline-none"
-                )}
-                aria-label="打电话"
-              >
-                <Phone className="size-7 stroke-[2]" aria-hidden />
-              </button>
-              <span className="min-w-0 text-xs text-muted-foreground sm:text-sm">
-                对已勾选分类发起外呼
-              </span>
-            </div>
+        <div className="flex w-full items-center gap-3 sm:gap-4">
+          <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
             <button
               type="button"
-              onClick={() => setCallLogOpen(true)}
-              className={cn(
-                "shrink-0 border-0 bg-transparent p-0 text-sm font-medium text-muted-foreground shadow-none",
-                "underline decoration-muted-foreground/50 underline-offset-4",
-                "hover:text-foreground hover:decoration-foreground/40",
-                "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-              )}
-            >
-              通话记录
-            </button>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:gap-4">
-            <button
-              type="button"
-              onClick={openWecomContactList}
+              onClick={startOutboundCall}
               className={cn(
                 "flex size-14 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg",
                 "transition-colors hover:bg-emerald-700",
                 "focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:ring-offset-2 focus-visible:outline-none"
               )}
-              aria-label="企微联系"
+              aria-label="打电话"
             >
-              <MessageCircle className="size-7 stroke-[2]" aria-hidden />
+              <Phone className="size-7 stroke-[2]" aria-hidden />
             </button>
-            <div className="flex min-w-0 flex-1 flex-col gap-2">
-              <span className="text-xs text-muted-foreground">
-                对已勾选分类发起企微会话
-              </span>
-              <p
-                role="note"
-                className={cn(
-                  "rounded-lg border border-emerald-600/35 bg-emerald-600/[0.08] px-3 py-2.5",
-                  "text-sm font-medium leading-snug text-emerald-950",
-                  "dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-50"
-                )}
-              >
-                建议在企微工作台中，打开线索运营平台后，处理企微联系线索
-              </p>
-            </div>
           </div>
-        )}
-
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
-          {contactTab === "phone"
-            ? "矩阵统计「仅电话」与「电话+企微」线索；「仅企微」不计入。"
-            : "矩阵统计「仅企微」与「电话+企微」线索；「仅电话」不计入。"}
-        </p>
+          <button
+            type="button"
+            onClick={() => setCallLogOpen(true)}
+            className={cn(
+              "shrink-0 border-0 bg-transparent p-0 text-sm font-medium text-muted-foreground shadow-none",
+              "underline decoration-muted-foreground/50 underline-offset-4",
+              "hover:text-foreground hover:decoration-foreground/40",
+              "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            )}
+          >
+            通话记录
+          </button>
+        </div>
 
         <div className="overflow-hidden rounded-xl border border-border/70 bg-card shadow-md">
           <div className="flex items-center gap-3 border-b border-border/60 bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
@@ -437,82 +360,6 @@ export function FollowingLeadsPanel() {
         </SheetContent>
       </Sheet>
 
-      <Sheet open={wecomSheetOpen} onOpenChange={setWecomSheetOpen}>
-        <SheetContent className={SHEET_WIDE}>
-          <SheetHeader className="border-b px-6 py-4 text-left">
-            <SheetTitle className="flex items-center gap-2">
-              <MessageCircle className="size-4 text-[#07C160]" aria-hidden />
-              企微联系 · 已选分类线索
-            </SheetTitle>
-            <SheetDescription>
-              共 {wecomRows.length} 人 · 触达含「仅企微」与「电话+企微」
-            </SheetDescription>
-          </SheetHeader>
-          <ScrollArea className="flex-1 px-4 py-4">
-            {wecomRows.length === 0 ? (
-              <p className="py-8 text-center text-sm text-muted-foreground">
-                暂无数据
-              </p>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="whitespace-nowrap">姓名</TableHead>
-                    <TableHead className="whitespace-nowrap">触达</TableHead>
-                    <TableHead className="whitespace-nowrap">电话</TableHead>
-                    <TableHead className="whitespace-nowrap">意向车型</TableHead>
-                    <TableHead className="whitespace-nowrap">等级</TableHead>
-                    <TableHead>备注</TableHead>
-                    <TableHead className="w-[72px] text-center whitespace-nowrap">
-                      微信聊天
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {wecomRows.map((lead) => {
-                    const d = getDemoLeadRowDisplay(lead);
-                    return (
-                      <TableRow key={lead.id}>
-                        <TableCell className="font-medium">
-                          {lead.name}
-                        </TableCell>
-                        <TableCell className="text-xs whitespace-nowrap">
-                          {contactReachLabel(lead.contactReach)}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {lead.phone}
-                        </TableCell>
-                        <TableCell>{d.intentModel}</TableCell>
-                        <TableCell>{d.level}</TableCell>
-                        <TableCell className="min-w-[200px] text-muted-foreground text-xs">
-                          {d.remark}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <button
-                            type="button"
-                            className={cn(
-                              "inline-flex size-9 items-center justify-center rounded-full border border-[#07C160]/35 bg-[#07C160]/10 text-[#07C160]",
-                              "transition-colors hover:bg-[#07C160]/20",
-                              "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                            )}
-                            title="打开微信聊天（演示）"
-                            aria-label={`与 ${lead.name} 发起企微会话`}
-                            onClick={() => {
-                              toast.message(`打开与 ${lead.name} 的企微会话（演示）`);
-                            }}
-                          >
-                            <MessageCircle className="size-4" aria-hidden />
-                          </button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            )}
-          </ScrollArea>
-        </SheetContent>
-      </Sheet>
     </>
   );
 }

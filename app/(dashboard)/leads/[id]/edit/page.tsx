@@ -127,41 +127,6 @@ export default function LeadEditPage() {
               {lead.owner}
             </p>
           </div>
-          <div className="grid gap-2 sm:grid-cols-4">
-            <Button
-              onClick={() => {
-                if (!lead.phone) {
-                  toast.message("当前线索无手机号，无法电话跟进");
-                  return;
-                }
-                toast.success(`已发起与 ${lead.name} 的电话跟进（演示）`);
-              }}
-              disabled={!lead.phone}
-            >
-              <Phone className="size-4" />
-              电话跟进
-            </Button>
-            <Button
-              variant={detail.hasWecom ? "default" : "outline"}
-              className={cn(!detail.hasWecom && "border-dashed")}
-              onClick={() =>
-                toast.success(
-                  detail.hasWecom
-                    ? `已打开 ${lead.name} 微信会话（演示）`
-                    : `已向 ${lead.name} 发起加微（演示）`
-                )
-              }
-            >
-              <MessageCircle className="size-4" />
-              {detail.hasWecom ? "微信跟进" : "加微"}
-            </Button>
-            <Button variant="outline" onClick={() => toast.message("已打开分配弹层（演示）")}>
-              分配线索
-            </Button>
-            <Button variant="outline" onClick={() => toast.message("已打开历史记录（演示）")}>
-              查看历史
-            </Button>
-          </div>
         </CardContent>
       </Card>
 
