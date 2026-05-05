@@ -7,7 +7,7 @@ import {
   ExternalLink,
   MessageCircle,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -61,7 +61,6 @@ function followupSinglePerson(task: Task): {
 }
 
 export function TodayWecomTasks() {
-  const router = useRouter();
   const { notOverdue, overdue } = splitPendingWecomTasksByOverdue();
   const [tab, setTab] = React.useState<"not_overdue" | "overdue">(
     "not_overdue"
@@ -82,6 +81,14 @@ export function TodayWecomTasks() {
     setActiveTaskId(taskId);
     setOpenGroups({ pending: true, done: true, failed: true });
     setSheetOpen(true);
+  }
+
+  function openWecomApp() {
+    if (typeof window === "undefined") return;
+    window.location.href = "wxwork://";
+    window.setTimeout(() => {
+      toast.message("若未自动拉起企业微信，请确认已安装并允许协议唤起");
+    }, 1200);
   }
 
   return (
@@ -260,7 +267,7 @@ export function TodayWecomTasks() {
                 className="mb-2 w-full justify-start gap-2"
                 onClick={() => {
                   setSheetOpen(false);
-                  router.push(`/wecom?taskId=${activeTask.id}`);
+                  openWecomApp();
                 }}
               >
                 <MessageCircle className="size-4" />

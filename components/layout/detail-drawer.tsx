@@ -54,9 +54,12 @@ export function DetailDrawer() {
   const task =
     drawerPayload?.type === "task" ? getTask(drawerPayload.id) : undefined;
   const isWecomProfileDrawer = drawerPayload?.type === "wecom_profile";
+  const isWecomImageDrawer = drawerPayload?.type === "wecom_image";
   const drawerWidthClass = isWecomProfileDrawer
     ? "flex h-full w-full max-w-full flex-col gap-0 p-0 sm:!w-[420px] sm:!max-w-[420px]"
-    : "flex h-full w-full max-w-full flex-col gap-0 p-0 sm:!w-[50vw] sm:!max-w-[50vw]";
+    : isWecomImageDrawer
+      ? "flex h-full w-full max-w-full flex-col gap-0 p-0 sm:!w-[50vw] sm:!max-w-[50vw]"
+      : "flex h-full w-full max-w-full flex-col gap-0 p-0 sm:!w-[50vw] sm:!max-w-[50vw]";
   const phoneGroupKey =
     drawerPayload?.type === "task" && drawerPayload.phoneGroupKey
       ? (drawerPayload.phoneGroupKey as FollowBucketKey)
@@ -72,6 +75,8 @@ export function DetailDrawer() {
         ? drawerPayload.currentLeadId ?? task?.leadId
         : drawerPayload?.type === "wecom_profile"
           ? drawerPayload.leadId
+          : drawerPayload?.type === "wecom_image"
+            ? drawerPayload.leadId
         : undefined;
 
   const displayLead = leadId ? getLead(leadId) : undefined;
@@ -81,6 +86,8 @@ export function DetailDrawer() {
       ? displayLead?.name ?? "线索"
       : drawerPayload?.type === "wecom_profile"
         ? "客户画像"
+      : drawerPayload?.type === "wecom_image"
+        ? "企微工作台"
       : isPhoneGroupTask
         ? getFollowBucketLabel(phoneGroupKey as FollowBucketKey)
         : task?.title ?? "任务";
@@ -116,6 +123,14 @@ export function DetailDrawer() {
     setHasFriendRelation(Math.random() > 0.5);
   }
 
+  function openWecomApp() {
+    if (typeof window === "undefined") return;
+    window.location.href = "wxwork://";
+    window.setTimeout(() => {
+      toast.message("若未自动拉起企业微信，请确认已安装并允许协议唤起");
+    }, 1200);
+  }
+
   return (
     <Sheet open={drawerOpen} onOpenChange={(o) => !o && closeDrawer()}>
       <SheetContent className={drawerWidthClass}>
@@ -126,11 +141,22 @@ export function DetailDrawer() {
               ? "任务详情 · 列表上下文保留在左侧"
               : drawerPayload?.type === "wecom_profile"
                 ? "企微侧边栏 · 客户画像"
+              : drawerPayload?.type === "wecom_image"
+                ? "企微侧边栏 · 预览图"
               : "线索详情 · 列表上下文保留在左侧"}
           </SheetDescription>
         </SheetHeader>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+          {isWecomImageDrawer ? (
+            <div className="mx-auto w-full max-w-[96%]">
+              <img
+                src="/qiyeweixin.png"
+                alt="企微工作台预览图"
+                className="w-full rounded-xl border border-border/60 object-contain shadow-sm"
+              />
+            </div>
+          ) : null}
           {isWecomProfileDrawer ? (
             <div className="px-0 py-0">
               <WecomCustomerProfileClient
@@ -198,7 +224,10 @@ export function DetailDrawer() {
                     <Button
                       size="sm"
                       onClick={() =>
-                        toast.message(`打开与 ${displayLead.name} 的微信会话（演示）`)
+                        openDrawer({
+                          type: "wecom_image",
+                          leadId: displayLead.id,
+                        })
                       }
                     >
                       微信
@@ -551,8 +580,7 @@ export function DetailDrawer() {
               <Button
                 className="w-full justify-start gap-2 sm:justify-center"
                 onClick={() => {
-                  closeDrawer();
-                  router.push(`/wecom?taskId=${task.id}`);
+                  openWecomApp();
                 }}
               >
                 <MessageCircle className="size-4" />

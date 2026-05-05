@@ -44,10 +44,10 @@ export function AppSidebar() {
           </div>
           <div className="flex min-w-0 flex-col group-data-[collapsible=icon]:hidden">
             <span className="truncate text-sm font-semibold tracking-tight">
-              DCC 线索运营
+              线索运营平台
             </span>
             <span className="truncate text-xs text-muted-foreground">
-              Demo
+              v1.0.0
             </span>
           </div>
         </div>

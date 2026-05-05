@@ -17,8 +17,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "DCC 线索运营管理",
-  description: "线索运营管理平台 · 纯前端演示",
+  title: "线索运营平台",
 };
 
 export default function RootLayout({

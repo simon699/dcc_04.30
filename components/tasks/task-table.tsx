@@ -389,9 +389,8 @@ export function TaskTable() {
                           className="gap-1"
                           onClick={() =>
                             openDrawer({
-                              type: "wecom_profile",
+                              type: "wecom_image",
                               leadId: row.leadId,
-                              autoOpenFollow: true,
                             })
                           }
                           aria-label="企微跟进"

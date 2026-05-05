@@ -20,6 +20,10 @@ export type DrawerPayload =
       type: "wecom_profile";
       leadId?: string;
       autoOpenFollow?: boolean;
+    }
+  | {
+      type: "wecom_image";
+      leadId?: string;
     };
 
 interface UiState {

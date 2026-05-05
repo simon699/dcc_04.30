@@ -5,7 +5,7 @@ set -euo pipefail
 APP_DIR="/opt/dcc_04.30"
 APP_NAME="dcc_04_30"
 PORT="3110"
-DOMAIN="dcc-demo.kongbaijiyi.com"
+DOMAIN="clues-demo.kongbaijiyi.com"
 NGINX_CONF="/etc/nginx/conf.d/${APP_NAME}.conf"
 SYSTEMD_SERVICE="/etc/systemd/system/${APP_NAME}.service"
 
