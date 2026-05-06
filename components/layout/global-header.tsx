@@ -104,7 +104,7 @@ export function GlobalHeader() {
             <DropdownMenuItem className="flex flex-col items-start gap-0.5 py-2">
               <span className="font-medium">任务即将到期</span>
               <span className="text-xs text-muted-foreground">
-                「企微回复询价方案」今日 14:00 截止
+                「企微回复询价方案」，明日 14:00 截止
               </span>
             </DropdownMenuItem>
             <DropdownMenuItem className="flex flex-col items-start gap-0.5 py-2">
