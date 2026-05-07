@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS wecom_customer_follow (
     wechat_channels_json JSON NULL COMMENT '92114 wechat_channels',
     oper_userid VARCHAR(128) NULL,
     raw_follow_info_json JSON NULL,
+    phone VARCHAR(32) NULL COMMENT '本地维护的手机号（同步不覆盖）',
     synced_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     UNIQUE KEY uk_follow_external (follow_userid, external_userid),
     KEY idx_external (external_userid),

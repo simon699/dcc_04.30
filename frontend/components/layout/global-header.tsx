@@ -29,6 +29,7 @@ const titles: Record<string, string> = {
   "/panel": "工作面板",
   "/tasks": "任务中心",
   "/leads": "线索库",
+  "/customers": "客户中心",
   "/rules": "设置",
   "/wecom": "企微工作台",
 };

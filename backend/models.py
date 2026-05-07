@@ -61,6 +61,7 @@ class WecomCustomerFollow(Base):
     wechat_channels_json: Mapped[dict | list | None] = mapped_column(JSON, nullable=True)
     oper_userid: Mapped[str | None] = mapped_column(String(128), nullable=True)
     raw_follow_info_json: Mapped[dict | list | None] = mapped_column(JSON, nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), server_default=func.now(), onupdate=func.now()
     )

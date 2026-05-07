@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { BookUser, CheckSquare, PlusCircle } from "lucide-react";
+import { BookUser, CheckSquare, PlusCircle, UsersRound } from "lucide-react";
 
 import {
   Command,
@@ -119,6 +119,15 @@ export function CommandMenu() {
               }}
             >
               线索库
+            </CommandItem>
+            <CommandItem
+              onSelect={() => {
+                setCommandOpen(false);
+                router.push("/customers");
+              }}
+            >
+              <UsersRound className="size-4" />
+              客户中心
             </CommandItem>
           </CommandGroup>
         </CommandList>
