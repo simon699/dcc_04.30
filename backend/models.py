@@ -65,3 +65,31 @@ class WecomCustomerFollow(Base):
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), server_default=func.now(), onupdate=func.now()
     )
+
+
+class WecomLead(Base):
+    __tablename__ = "wecom_leads"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    phone: Mapped[str] = mapped_column(String(32), nullable=False)
+    customer_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    external_userid: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), server_default=func.now())
+    intent_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    customer_level: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    owner_userid: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class WecomLeadFollow(Base):
+    __tablename__ = "wecom_leads_follow"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    lead_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    follow_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
+    remark: Mapped[str | None] = mapped_column(Text, nullable=True)
+    next_follow_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    follow_method: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), server_default=func.now())

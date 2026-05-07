@@ -1,20 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { ExternalLink, MessageCircle, Phone } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   Sheet,
   SheetContent,
@@ -27,25 +17,19 @@ import {
   type FollowBucketKey,
   channelLabel,
   getFollowBucketLabel,
-  getLeadDetailDisplay,
-  getLeadFollowRecords,
   getLead,
   getLeadByName,
   getPhoneGroupTaskDetail,
   getTask,
   getWecomTaskPanelDetail,
-  leadStatusLabel,
   taskStatusLabel,
 } from "@/lib/mock-data";
+import { LeadDrawerPanel } from "@/components/leads/lead-drawer-panel";
 import { useUiStore } from "@/lib/store/ui-store";
 import { cn } from "@/lib/utils";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WecomCustomerProfileClient } from "@/app/(dashboard)/wecom/customer-profile/wecom-customer-profile-client";
 
-const ASSIGNABLE_OWNERS = ["王销售", "刘顾问", "赵顾问", "陈专员"] as const;
-
 export function DetailDrawer() {
-  const router = useRouter();
   const drawerOpen = useUiStore((s) => s.drawerOpen);
   const drawerPayload = useUiStore((s) => s.drawerPayload);
   const closeDrawer = useUiStore((s) => s.closeDrawer);
@@ -83,7 +67,7 @@ export function DetailDrawer() {
 
   const title =
     drawerPayload?.type === "lead"
-      ? displayLead?.name ?? "线索"
+      ? "线索详情"
       : drawerPayload?.type === "wecom_profile"
         ? "客户画像"
       : drawerPayload?.type === "wecom_image"
@@ -106,23 +90,6 @@ export function DetailDrawer() {
     task?.channel === "wecom" && currentCustomerName
       ? getLeadByName(currentCustomerName)
       : undefined;
-  const leadDetail = displayLead ? getLeadDetailDisplay(displayLead) : null;
-  const leadFollowRecords = displayLead ? getLeadFollowRecords(displayLead.id) : [];
-  const [assignOpen, setAssignOpen] = useState(false);
-  const [selectedOwner, setSelectedOwner] = useState("");
-  const [hasFriendRelation, setHasFriendRelation] = useState<boolean | null>(null);
-
-  function openAssignDialog() {
-    setAssignOpen(true);
-    setSelectedOwner("");
-    setHasFriendRelation(null);
-  }
-
-  function chooseOwner(owner: string) {
-    setSelectedOwner(owner);
-    setHasFriendRelation(Math.random() > 0.5);
-  }
-
   function openWecomApp() {
     if (typeof window === "undefined") return;
     window.location.href = "wxwork://";
@@ -165,159 +132,8 @@ export function DetailDrawer() {
               />
             </div>
           ) : null}
-          {drawerPayload?.type === "lead" && displayLead ? (
-            <div className="space-y-4">
-              <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-base font-semibold">{displayLead.name}</h3>
-                  <Badge variant="secondary">
-                    {leadStatusLabel(displayLead.status)}
-                  </Badge>
-                </div>
-                <p className="mt-1 text-sm text-muted-foreground">{displayLead.phone}</p>
-                <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-                  <p>
-                    <span className="text-muted-foreground">是否加微信：</span>
-                    {leadDetail?.hasWecom ? "已加微" : "未加微"}
-                  </p>
-                  <p>
-                    <span className="text-muted-foreground">线索产生时间：</span>
-                    {new Date(leadDetail?.createdAt ?? "").toLocaleString("zh-CN")}
-                  </p>
-                  <p>
-                    <span className="text-muted-foreground">下次跟进时间：</span>
-                    {new Date(leadDetail?.nextFollowUpAt ?? "").toLocaleString("zh-CN")}
-                  </p>
-                </div>
-                <p className="mt-2 text-sm">
-                  <span className="text-muted-foreground">备注：</span>
-                  {leadDetail?.note ?? "—"}
-                </p>
-                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {displayLead.phone ? (
-                    <button
-                      type="button"
-                      className={cn(
-                        buttonVariants({ variant: "outline", size: "sm" }),
-                        "gap-1"
-                      )}
-                      onClick={() => {
-                        closeDrawer();
-                        router.push(`/leads/${displayLead.id}/edit?entry=phone`);
-                      }}
-                    >
-                      <Phone className="size-4" />
-                      电话
-                    </button>
-                  ) : (
-                    <span
-                      className={cn(
-                        buttonVariants({ variant: "outline", size: "sm" }),
-                        "pointer-events-none gap-1 text-muted-foreground opacity-60"
-                      )}
-                    >
-                      <Phone className="size-4" />
-                      无手机号
-                    </span>
-                  )}
-                  {leadDetail?.hasWecom ? (
-                    <Button
-                      size="sm"
-                      onClick={() =>
-                        openDrawer({
-                          type: "wecom_image",
-                          leadId: displayLead.id,
-                        })
-                      }
-                    >
-                      微信
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="border-dashed"
-                      onClick={() =>
-                        toast.message(`向 ${displayLead.name} 发起加微（演示）`)
-                      }
-                    >
-                      加微
-                    </Button>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      closeDrawer();
-                      router.push(`/leads/${displayLead.id}/edit?entry=edit`);
-                    }}
-                  >
-                    编辑线索
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={openAssignDialog}
-                  >
-                    分配线索
-                  </Button>
-                </div>
-              </div>
-
-              <Tabs defaultValue="detail" className="w-full">
-                <TabsList variant="line" className="w-full justify-start bg-transparent p-0">
-                  <TabsTrigger value="detail" className="px-3 py-2">
-                    详情
-                  </TabsTrigger>
-                  <TabsTrigger value="records" className="px-3 py-2">
-                    跟进记录
-                  </TabsTrigger>
-                  <TabsTrigger value="profile" className="px-3 py-2">
-                    客户画像
-                  </TabsTrigger>
-                </TabsList>
-                <TabsContent value="detail" className="mt-3">
-                  <dl className="grid gap-3 text-sm">
-                    <div>
-                      <dt className="text-muted-foreground">意向车型</dt>
-                      <dd className="font-medium">{leadDetail?.intentModel ?? "—"}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-muted-foreground">车型年款</dt>
-                      <dd>{leadDetail?.modelYear ?? "—"}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-muted-foreground">年款配置</dt>
-                      <dd>{leadDetail?.yearConfig ?? "—"}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-muted-foreground">邀约到店日期</dt>
-                      <dd>{new Date(leadDetail?.inviteStoreAt ?? "").toLocaleString("zh-CN")}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-muted-foreground">下次联系时间</dt>
-                      <dd>{new Date(leadDetail?.nextContactAt ?? "").toLocaleString("zh-CN")}</dd>
-                    </div>
-                  </dl>
-                </TabsContent>
-                <TabsContent value="records" className="mt-3">
-                  <ul className="space-y-3">
-                    {leadFollowRecords.map((r) => (
-                      <li key={r.id} className="relative pl-5">
-                        <span className="absolute left-0 top-1.5 size-2 rounded-full bg-primary" />
-                        <div className="text-xs text-muted-foreground">
-                          {new Date(r.at).toLocaleString("zh-CN")} · {channelLabel(r.channel)}
-                        </div>
-                        <p className="mt-1 text-sm">{r.content}</p>
-                      </li>
-                    ))}
-                  </ul>
-                </TabsContent>
-                <TabsContent value="profile" className="mt-3">
-                  <p className="text-sm text-muted-foreground">暂无客户画像</p>
-                </TabsContent>
-              </Tabs>
-            </div>
+          {drawerPayload?.type === "lead" && leadId ? (
+            <LeadDrawerPanel leadId={leadId} />
           ) : null}
 
           {drawerPayload?.type === "task" && (task || isPhoneGroupTask) ? (
@@ -610,56 +426,6 @@ export function DetailDrawer() {
           </Button>
         </div>
       </SheetContent>
-      <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>分配线索</DialogTitle>
-            <DialogDescription>
-              为 {displayLead?.name ?? "当前客户"} 选择转交人员
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <label className="text-sm text-muted-foreground">电销专员</label>
-            <select
-              value={selectedOwner}
-              onChange={(e) => chooseOwner(e.target.value)}
-              className={cn(
-                "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs",
-                "focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
-              )}
-            >
-              <option value="">请选择人员</option>
-              {ASSIGNABLE_OWNERS.map((owner) => (
-                <option key={owner} value={owner}>
-                  {owner}
-                </option>
-              ))}
-            </select>
-            {hasFriendRelation === false ? (
-              <p className="text-sm text-destructive">
-                该电销专员与客户无好友关系，需要添加好友关系后，才能转交线索。
-              </p>
-            ) : null}
-            {hasFriendRelation === true ? (
-              <p className="text-sm text-emerald-600">已检测到好友关系，可进行转交。</p>
-            ) : null}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAssignOpen(false)}>
-              取消
-            </Button>
-            <Button
-              disabled={!selectedOwner || hasFriendRelation !== true}
-              onClick={() => {
-                toast.success(`已将 ${displayLead?.name ?? "该客户"} 转交给 ${selectedOwner}（演示）`);
-                setAssignOpen(false);
-              }}
-            >
-              确认转交
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </Sheet>
   );
 }
