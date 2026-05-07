@@ -39,7 +39,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useUiStore } from "@/lib/store/ui-store";
-import { formatHttpApiDetail } from "@/lib/utils";
+import { asTrimmedString, formatHttpApiDetail } from "@/lib/utils";
 
 const DEFAULT_FOLLOW_USERID = "ShiFengwei";
 
@@ -241,8 +241,8 @@ export default function CustomersPage() {
                       onClick={() =>
                         openDrawer({
                           type: "customer",
-                          follow_userid: row.follow_userid,
-                          external_userid: row.external_userid,
+                          follow_userid: asTrimmedString(row.follow_userid),
+                          external_userid: asTrimmedString(row.external_userid),
                         })
                       }
                     >

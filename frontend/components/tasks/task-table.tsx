@@ -19,7 +19,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useUiStore } from "@/lib/store/ui-store";
 import { tryOpenWecomExternalUserChat } from "@/lib/wecom-open-chat";
-import { cn } from "@/lib/utils";
+import { asTrimmedString, cn } from "@/lib/utils";
 
 type ChannelTab = "all" | "phone" | "wecom";
 
@@ -99,10 +99,10 @@ function formatDue(v: string | null): string {
 }
 
 function displayTarget(row: ApiTaskRow): string {
-  const named = row.target_display_name?.trim();
+  const named = asTrimmedString(row.target_display_name);
   if (named && named !== "—") return named;
-  const ext = row.target.target_external_userid?.trim();
-  const ph = row.target.target_phone?.trim();
+  const ext = asTrimmedString(row.target.target_external_userid);
+  const ph = asTrimmedString(row.target.target_phone);
   if (ext) return ext;
   if (ph) return ph;
   return "—";

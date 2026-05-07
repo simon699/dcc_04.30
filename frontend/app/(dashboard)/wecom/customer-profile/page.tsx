@@ -3,12 +3,22 @@ import { Suspense } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WecomCustomerProfileClient } from "./wecom-customer-profile-client";
 
+function firstParam(v: string | string[] | undefined): string | undefined {
+  if (v == null) return undefined;
+  return Array.isArray(v) ? v[0] : v;
+}
+
 export default async function WecomCustomerProfilePage({
   searchParams,
 }: {
-  searchParams: Promise<{ leadId?: string; followUserid?: string }>;
+  searchParams: Promise<{
+    leadId?: string | string[];
+    followUserid?: string | string[];
+  }>;
 }) {
-  const { leadId, followUserid } = await searchParams;
+  const sp = await searchParams;
+  const leadId = firstParam(sp.leadId);
+  const followUserid = firstParam(sp.followUserid);
   return (
     <Suspense
       fallback={

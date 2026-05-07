@@ -42,7 +42,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useUiStore } from "@/lib/store/ui-store";
 import { tryOpenWecomExternalUserChat } from "@/lib/wecom-open-chat";
-import { cn, formatHttpApiDetail } from "@/lib/utils";
+import { asTrimmedString, cn, formatHttpApiDetail } from "@/lib/utils";
 
 export type CustomerProfileApi = {
   external_userid: string;
@@ -155,8 +155,8 @@ export function CustomerCenterDrawerPanel({ follow_userid, external_userid }: Pr
   const [editPhone, setEditPhone] = React.useState("");
   const [openingWecom, setOpeningWecom] = React.useState(false);
 
-  const ext = external_userid.trim();
-  const fu = follow_userid.trim();
+  const ext = asTrimmedString(external_userid);
+  const fu = asTrimmedString(follow_userid);
 
   const loadProfile = React.useCallback(async () => {
     if (!ext) return;
@@ -239,14 +239,14 @@ export function CustomerCenterDrawerPanel({ follow_userid, external_userid }: Pr
   }, [loadLeads, loadTasks]);
 
   function displayNameFromProfile(p: CustomerProfileApi): string {
-    return (p.display_name || "").trim() || p.external_userid;
+    return asTrimmedString(p.display_name) || asTrimmedString(p.external_userid);
   }
 
   function targetLabel(row: ApiTaskRow): string {
-    const n = row.target_display_name?.trim();
+    const n = asTrimmedString(row.target_display_name);
     if (n && n !== "—") return n;
-    const e = row.target.target_external_userid?.trim();
-    const ph = row.target.target_phone?.trim();
+    const e = asTrimmedString(row.target.target_external_userid);
+    const ph = asTrimmedString(row.target.target_phone);
     if (e) return e;
     if (ph) return ph;
     return "—";
@@ -294,7 +294,7 @@ export function CustomerCenterDrawerPanel({ follow_userid, external_userid }: Pr
   if (!profile) return null;
 
   const name = displayNameFromProfile(profile);
-  const phoneRaw = (profile.phone ?? "").trim();
+  const phoneRaw = asTrimmedString(profile.phone);
 
   return (
     <div className="space-y-4">
@@ -348,7 +348,7 @@ export function CustomerCenterDrawerPanel({ follow_userid, external_userid }: Pr
               className="gap-1"
               disabled={openingWecom}
               onClick={async () => {
-                const eid = profile.external_userid.trim();
+                const eid = asTrimmedString(profile.external_userid);
                 if (!eid) return;
                 setOpeningWecom(true);
                 try {
@@ -445,7 +445,7 @@ export function CustomerCenterDrawerPanel({ follow_userid, external_userid }: Pr
                   <TableRow key={l.id}>
                     <TableCell>
                       <div className="font-medium">
-                        {(l.customer_name ?? "").trim() || "—"}
+                        {asTrimmedString(l.customer_name) || "—"}
                       </div>
                       <div className="text-xs text-muted-foreground">
                         {l.phone ?? "无手机"}

@@ -5,6 +5,12 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/** 企业微信 / 后端 JSON 可能返回 number、null；避免对非 string 调用 .trim 报错 */
+export function asTrimmedString(v: unknown): string {
+  if (v == null) return "";
+  return String(v).trim();
+}
+
 /** 将 HTTP JSON 错误体（尤其 FastAPI 的 detail）转成可读字符串，避免出现 [object Object] */
 export function formatHttpApiDetail(body: unknown): string {
   if (body === null || body === undefined) return "请求失败";

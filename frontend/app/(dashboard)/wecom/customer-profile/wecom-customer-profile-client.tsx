@@ -22,6 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useUiStore } from "@/lib/store/ui-store";
 import { tryOpenWecomExternalUserChat } from "@/lib/wecom-open-chat";
 import {
+  asTrimmedString,
   cn,
   expandWecomGetCurExternalContactError,
   formatCaughtError,
@@ -74,8 +75,8 @@ type ApiTaskRow = {
 
 const DEFAULT_FOLLOW_USERID = "ShiFengwei";
 
-function parseTagLabels(raw: string | null | undefined): string[] {
-  const s = (raw ?? "").trim();
+function parseTagLabels(raw: unknown): string[] {
+  const s = asTrimmedString(raw);
   if (!s) return [];
   try {
     const v = JSON.parse(s) as unknown;
@@ -128,10 +129,10 @@ function mapTargetForDrawer(
 }
 
 function targetLabel(row: ApiTaskRow): string {
-  const n = row.target_display_name?.trim();
+  const n = asTrimmedString(row.target_display_name);
   if (n && n !== "—") return n;
-  const e = row.target.target_external_userid?.trim();
-  const ph = row.target.target_phone?.trim();
+  const e = asTrimmedString(row.target.target_external_userid);
+  const ph = asTrimmedString(row.target.target_phone);
   if (e) return e;
   if (ph) return ph;
   return "—";
@@ -152,7 +153,7 @@ export function WecomCustomerProfileClient({
   void _autoOpenFollow;
   const corpId = process.env.NEXT_PUBLIC_WECOM_CORP_ID ?? "";
   const agentId = process.env.NEXT_PUBLIC_WECOM_AGENT_ID ?? "";
-  const fu = (followUserid ?? DEFAULT_FOLLOW_USERID).trim();
+  const fu = asTrimmedString(followUserid ?? DEFAULT_FOLLOW_USERID);
 
   const openDrawer = useUiStore((s) => s.openDrawer);
   const [openingWecom, setOpeningWecom] = React.useState(false);
@@ -255,7 +256,7 @@ export function WecomCustomerProfileClient({
   }, [corpId, agentId]);
 
   const extUserId =
-    externalContact.kind === "success" ? externalContact.userId.trim() : "";
+    externalContact.kind === "success" ? asTrimmedString(externalContact.userId) : "";
 
   const loadProfile = React.useCallback(async () => {
     if (!extUserId) return;
@@ -357,9 +358,9 @@ export function WecomCustomerProfileClient({
   }, [extUserId, loadTimeline, loadLeads, loadTasks]);
 
   const displayName = profile
-    ? (profile.display_name || "").trim() || profile.external_userid
+    ? asTrimmedString(profile.display_name) || asTrimmedString(profile.external_userid)
     : extUserId || "—";
-  const phoneDisplay = (profile?.phone ?? "").trim();
+  const phoneDisplay = asTrimmedString(profile?.phone);
   const tagLabels = React.useMemo(() => {
     const a = parseTagLabels(profile?.tags_json);
     const b = parseTagLabels(profile?.tag_id_json);
@@ -452,9 +453,9 @@ export function WecomCustomerProfileClient({
                   <Button
                     variant="secondary"
                     className="gap-1"
-                    disabled={openingWecom || !profile.external_userid.trim()}
+                    disabled={openingWecom || !asTrimmedString(profile.external_userid)}
                     onClick={async () => {
-                      const eid = profile.external_userid.trim();
+                      const eid = asTrimmedString(profile.external_userid);
                       if (!eid) return;
                       setOpeningWecom(true);
                       try {
@@ -566,7 +567,7 @@ export function WecomCustomerProfileClient({
                         <TableRow key={l.id}>
                           <TableCell>
                             <div className="font-medium">
-                              {(l.customer_name ?? "").trim() || "—"}
+                              {asTrimmedString(l.customer_name) || "—"}
                             </div>
                             <div className="text-xs text-muted-foreground">{l.phone ?? "—"}</div>
                           </TableCell>
