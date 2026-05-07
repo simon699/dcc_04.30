@@ -18,7 +18,11 @@ import {
   getLeadDetailDisplay,
   getLeadFollowRecords,
 } from "@/lib/mock-data";
-import { formatCaughtError, formatHttpApiDetail } from "@/lib/utils";
+import {
+  expandWecomGetCurExternalContactError,
+  formatCaughtError,
+  formatHttpApiDetail,
+} from "@/lib/utils";
 
 type ExternalContactSdkState =
   | { kind: "loading" }
@@ -111,11 +115,14 @@ export function WecomCustomerProfileClient({
             });
           }
         } else {
-          const msg =
+          const raw =
             typeof res.errMsg === "string"
               ? res.errMsg
               : `getCurExternalContact 异常：${JSON.stringify(res)}`;
-          setExternalContact({ kind: "error", message: msg });
+          setExternalContact({
+            kind: "error",
+            message: expandWecomGetCurExternalContactError(raw),
+          });
         }
       } catch (e) {
         if (cancelled) return;
@@ -173,7 +180,9 @@ export function WecomCustomerProfileClient({
             <p className="break-all font-mono text-sm leading-relaxed">{externalContact.userId}</p>
           ) : null}
           {externalContact.kind === "error" ? (
-            <p className="text-sm text-destructive">{externalContact.message}</p>
+            <p className="whitespace-pre-line text-sm text-destructive leading-relaxed">
+              {externalContact.message}
+            </p>
           ) : null}
         </CardContent>
       </Card>
