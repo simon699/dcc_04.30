@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { type LeadLevelGrade } from "@/lib/mock-data";
+import { cn, formatHttpApiDetail } from "@/lib/utils";
 
 type Level = LeadLevelGrade;
 
@@ -37,13 +38,14 @@ export default function LeadEditPage() {
   const [loadError, setLoadError] = React.useState<string | null>(null);
 
   const [intentModel, setIntentModel] = React.useState("");
-  const [modelYear, setModelYear] = React.useState("2025款");
-  const [yearConfig, setYearConfig] = React.useState("");
   const [nextFollow, setNextFollow] = React.useState("");
-  const [nextContact, setNextContact] = React.useState("");
   const [inviteDate, setInviteDate] = React.useState("");
   const [level, setLevel] = React.useState<Level>("B级");
   const [note, setNote] = React.useState("");
+  const [nextFollowMethod, setNextFollowMethod] = React.useState<"phone" | "wecom">(
+    "phone"
+  );
+  const [submitting, setSubmitting] = React.useState(false);
 
   const load = React.useCallback(() => {
     if (!/^\d+$/.test(leadId)) {
@@ -75,16 +77,13 @@ export default function LeadEditPage() {
         if (["H级", "A级", "B级", "C级", "N级"].includes(lv)) {
           setLevel(lv);
         }
-        setNote(d.latest_remark ?? "");
+        setNote("");
         if (d.next_follow_up_at) {
           setNextFollow(formatDateTimeInput(d.next_follow_up_at));
         } else {
           setNextFollow("");
         }
-        setNextContact("");
         setInviteDate("");
-        setModelYear("2025款");
-        setYearConfig("");
       })
       .catch((e: Error) => {
         setData(null);
@@ -94,6 +93,7 @@ export default function LeadEditPage() {
   }, [leadId]);
 
   React.useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 初始加载线索
     load();
   }, [load]);
 
@@ -109,6 +109,48 @@ export default function LeadEditPage() {
       toast.message(`已进入编辑模式：${displayName}`);
     }
   }, [entry, data, displayName]);
+
+  async function submitCompleteFollow() {
+    if (!nextFollow.trim()) {
+      toast.error("请填写下次跟进时间");
+      return;
+    }
+    const phOk = Boolean((data.phone ?? "").trim());
+    const extOk = Boolean((data.external_userid ?? "").trim());
+    if (!phOk && !extOk) {
+      toast.error("线索缺少手机号与企微客户 ID，无法生成跟进任务");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const body = {
+        intent_model: intentModel.trim() || null,
+        customer_level: level,
+        remark: note.trim() || null,
+        invite_store_at: inviteDate.trim() || null,
+        next_follow_at: nextFollow.trim(),
+        next_follow_method: nextFollowMethod,
+      };
+      const r = await fetch(`/api/leads/${encodeURIComponent(leadId)}/complete-follow`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      let json: unknown;
+      try {
+        json = await r.json();
+      } catch {
+        throw new Error(`HTTP ${r.status}`);
+      }
+      if (!r.ok) throw new Error(formatHttpApiDetail(json));
+      toast.success("跟进已保存，并已生成下次跟进任务");
+      router.push("/leads");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -137,7 +179,7 @@ export default function LeadEditPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">编辑线索</h1>
           <p className="mt-1 text-muted-foreground">
-            更新线索信息并完成本次跟进处理（保存接口待对接时为演示）。
+            保存后将写入跟进记录，并按下次跟进时间与方式生成一条任务（截止为该日 23:59）。
           </p>
         </div>
         <Button variant="outline" onClick={() => router.back()}>
@@ -167,7 +209,7 @@ export default function LeadEditPage() {
                 : "—"}
             </p>
             <p>
-              <span className="text-muted-foreground">下次跟进时间：</span>
+              <span className="text-muted-foreground">当前下次跟进（参考）：</span>
               {data.next_follow_up_at
                 ? new Date(data.next_follow_up_at).toLocaleString("zh-CN")
                 : "—"}
@@ -185,7 +227,7 @@ export default function LeadEditPage() {
           <CardTitle className="text-base">客户跟进信息</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="intentModel">意向车型</Label>
               <Input
@@ -195,50 +237,54 @@ export default function LeadEditPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="modelYear">车型年款</Label>
-              <Input
-                id="modelYear"
-                value={modelYear}
-                onChange={(e) => setModelYear(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="yearConfig">年款配置</Label>
-              <Input
-                id="yearConfig"
-                value={yearConfig}
-                onChange={(e) => setYearConfig(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="space-y-2">
-              <Label htmlFor="inviteDate">邀约到店日期</Label>
+              <Label htmlFor="inviteDate">邀约到店日期（选填，可清空）</Label>
               <Input
                 id="inviteDate"
-                type="datetime-local"
+                type="date"
                 value={inviteDate}
                 onChange={(e) => setInviteDate(e.target.value)}
               />
             </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="nextFollow">下次跟进时间</Label>
+              <Label htmlFor="nextFollow">
+                下次跟进时间 <span className="text-destructive">*</span>
+              </Label>
               <Input
                 id="nextFollow"
                 type="datetime-local"
                 value={nextFollow}
                 onChange={(e) => setNextFollow(e.target.value)}
+                required
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="nextContact">下次联系时间</Label>
-              <Input
-                id="nextContact"
-                type="datetime-local"
-                value={nextContact}
-                onChange={(e) => setNextContact(e.target.value)}
-              />
+              <Label>下次跟进方式</Label>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={nextFollowMethod === "phone" ? "default" : "outline"}
+                  onClick={() => setNextFollowMethod("phone")}
+                  className={cn(nextFollowMethod !== "phone" && "border-dashed")}
+                >
+                  电话
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={nextFollowMethod === "wecom" ? "default" : "outline"}
+                  onClick={() => setNextFollowMethod("wecom")}
+                  className={cn(nextFollowMethod !== "wecom" && "border-dashed")}
+                >
+                  微信
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                将写入跟进表，并用于生成任务的触达方式（电话 / 企微）。
+              </p>
             </div>
           </div>
 
@@ -266,6 +312,7 @@ export default function LeadEditPage() {
               value={note}
               onChange={(e) => setNote(e.target.value)}
               rows={4}
+              placeholder="本次跟进内容（写入跟进记录备注）"
             />
           </div>
 
@@ -274,11 +321,10 @@ export default function LeadEditPage() {
               返回线索库
             </Button>
             <Button
-              onClick={() => {
-                toast.success("线索信息已保存（演示）");
-              }}
+              disabled={submitting || !nextFollow.trim()}
+              onClick={() => void submitCompleteFollow()}
             >
-              保存并完成跟进
+              {submitting ? "提交中…" : "保存并完成跟进"}
             </Button>
           </div>
         </CardContent>

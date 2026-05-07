@@ -12,11 +12,13 @@ from sqlalchemy import func as sql_func, or_, select
 from sqlalchemy.orm import Session
 
 from db import get_session
-from models import WecomLead, WecomLeadFollow
+from models import WecomLead, WecomLeadFollow, WecomTask, WecomTaskTarget
 
 router = APIRouter()
 
 DEFAULT_OWNER_USERID = "ShiFengwei"
+
+_ALLOWED_FOLLOW_METHOD = frozenset({"phone", "wecom"})
 
 
 def _require_mysql() -> None:
@@ -382,6 +384,126 @@ def add_lead_follow(lead_id: int, body: LeadFollowCreate) -> dict[str, Any]:
         sess.commit()
         sess.refresh(rec)
         return {"ok": True, "id": rec.id}
+    except HTTPException:
+        sess.rollback()
+        raise
+    except Exception:
+        sess.rollback()
+        raise
+    finally:
+        sess.close()
+
+
+def _parse_required_next_follow(s: str) -> datetime:
+    raw = str(s).strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="下次跟进时间为必填")
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00").replace("+00:00", ""))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="下次跟进时间格式无效") from e
+
+
+def _deadline_end_of_that_day(dt: datetime) -> datetime:
+    """下次跟进时间所在自然日的 23:59:59。"""
+    return datetime(dt.year, dt.month, dt.day, 23, 59, 59)
+
+
+class LeadCompleteFollowBody(BaseModel):
+    intent_model: str | None = None
+    customer_level: str | None = None
+    remark: str | None = None
+    invite_store_at: str | None = Field(None, description="邀约到店日期，可选")
+    next_follow_at: str = Field(..., min_length=1)
+    next_follow_method: str = Field(..., min_length=1, description="phone 或 wecom")
+
+
+@router.post("/api/leads/{lead_id}/complete-follow")
+def complete_lead_follow(lead_id: int, body: LeadCompleteFollowBody) -> dict[str, Any]:
+    """保存线索字段、写入跟进记录，并按下次跟进时间与方式创建跟进任务。"""
+    _require_mysql()
+    method = (body.next_follow_method or "").strip().lower()
+    if method not in _ALLOWED_FOLLOW_METHOD:
+        raise HTTPException(
+            status_code=400,
+            detail="next_follow_method 须为 phone（电话）或 wecom（微信）",
+        )
+
+    nf = _parse_required_next_follow(body.next_follow_at)
+    deadline = _deadline_end_of_that_day(nf)
+
+    sess = get_session()
+    try:
+        lead = sess.get(WecomLead, lead_id)
+        if lead is None:
+            raise HTTPException(status_code=404, detail="线索不存在")
+
+        if body.intent_model is not None:
+            lead.intent_model = (body.intent_model or "").strip() or None
+        if body.customer_level is not None:
+            lead.customer_level = (body.customer_level or "").strip() or None
+
+        remark_parts: list[str] = []
+        if body.remark and str(body.remark).strip():
+            remark_parts.append(str(body.remark).strip())
+        inv = (body.invite_store_at or "").strip()
+        if inv:
+            remark_parts.append(f"邀约到店：{inv}")
+        remark_final = "\n".join(remark_parts) if remark_parts else None
+
+        follow_rec = WecomLeadFollow(
+            lead_id=lead_id,
+            follow_at=datetime.utcnow(),
+            remark=remark_final,
+            next_follow_at=nf,
+            follow_method=method,
+        )
+        sess.add(follow_rec)
+        sess.flush()
+
+        cust_label = (lead.customer_name or "").strip() or "客户"
+        task_name = f"{cust_label}-线索跟进任务"
+
+        task = WecomTask(
+            task_type="follow_up",
+            channel=method,
+            name=task_name,
+            description="线索跟进",
+            mass_content=None,
+            start_at=None,
+            deadline=deadline,
+            creator_userid=(lead.owner_userid or DEFAULT_OWNER_USERID).strip()
+            or DEFAULT_OWNER_USERID,
+            status="pending",
+        )
+        sess.add(task)
+        sess.flush()
+
+        ext = (lead.external_userid or "").strip() or None
+        ph = (lead.phone or "").strip() or None
+        if not ext and not ph:
+            raise HTTPException(
+                status_code=400,
+                detail="线索缺少手机号与企微 external_userid，无法生成任务对象",
+            )
+
+        sess.add(
+            WecomTaskTarget(
+                task_id=task.id,
+                target_external_userid=ext,
+                target_phone=ph if ph else None,
+                status="pending",
+            )
+        )
+
+        sess.commit()
+        sess.refresh(follow_rec)
+        sess.refresh(task)
+        return {
+            "ok": True,
+            "follow_id": follow_rec.id,
+            "task_id": task.id,
+        }
     except HTTPException:
         sess.rollback()
         raise
