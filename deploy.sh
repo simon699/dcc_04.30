@@ -67,6 +67,20 @@ if [[ ! -d "${BACKEND_DIR}" ]]; then
   exit 1
 fi
 
+# 企业微信等密钥：与仓库中 env.example 同结构，放在应用根目录 .env
+# - npm run build 会读入 NEXT_PUBLIC_* 打入前端
+# - systemd 通过 EnvironmentFile 为后端提供 WECOM_*
+ENV_FILE="${APP_DIR}/.env"
+if [[ -f "${ENV_FILE}" ]]; then
+  echo "==> 加载环境变量: ${ENV_FILE}"
+  set -a
+  # shellcheck disable=SC1090
+  source "${ENV_FILE}"
+  set +a
+else
+  echo "==> 提示: 未找到 ${ENV_FILE}（可将 env.example 复制为 .env 并填写企业微信等配置）"
+fi
+
 # 先停掉已有实例，释放端口与内存，避免 restart 长时间等待或端口占用导致新进程起不来
 echo "==> 停止已有应用服务（若存在）"
 systemctl stop "${APP_NAME}" 2>/dev/null || true
@@ -99,6 +113,7 @@ ExecStart=/usr/bin/env npm run start -- -p ${PORT_FRONTEND}
 Restart=always
 RestartSec=5
 Environment=NODE_ENV=production
+EnvironmentFile=-${APP_DIR}/.env
 User=root
 KillMode=mixed
 TimeoutStopSec=30
@@ -119,6 +134,7 @@ WorkingDirectory=${BACKEND_DIR}
 ExecStart=${BACKEND_DIR}/.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port ${PORT_BACKEND}
 Restart=always
 RestartSec=5
+EnvironmentFile=-${APP_DIR}/.env
 User=root
 KillMode=mixed
 TimeoutStopSec=30
