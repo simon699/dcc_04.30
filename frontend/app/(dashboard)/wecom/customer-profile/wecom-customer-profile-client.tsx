@@ -18,6 +18,7 @@ import {
   getLeadDetailDisplay,
   getLeadFollowRecords,
 } from "@/lib/mock-data";
+import { formatCaughtError, formatHttpApiDetail } from "@/lib/utils";
 
 type ExternalContactSdkState =
   | { kind: "loading" }
@@ -65,46 +66,64 @@ export function WecomCustomerProfileClient({
           agentId: Number(agentId.trim()),
           jsApiList: ["getCurExternalContact"],
           getConfigSignature: async (url) => {
+            console.info("[WeCom] corp-signature url=", url);
             const r = await fetch(
               `/api/wecom/jssdk/corp-signature?url=${encodeURIComponent(url)}`,
             );
             if (!r.ok) {
               const detail = await r.json().catch(() => ({}));
-              throw new Error(
-                typeof detail === "object" && detail && "detail" in detail
-                  ? String((detail as { detail?: string }).detail)
-                  : await r.text(),
-              );
+              const text = formatHttpApiDetail(detail) || (await r.text());
+              console.warn("[WeCom] corp-signature failed", r.status, text);
+              throw new Error(text);
             }
-            return r.json() as Promise<{ timestamp: number | string; nonceStr: string; signature: string }>;
+            const sig = await r.json();
+            console.info("[WeCom] corp-signature ok");
+            return sig as { timestamp: number | string; nonceStr: string; signature: string };
           },
           getAgentConfigSignature: async (url) => {
+            console.info("[WeCom] agent-signature url=", url);
             const r = await fetch(
               `/api/wecom/jssdk/agent-signature?url=${encodeURIComponent(url)}`,
             );
             if (!r.ok) {
               const detail = await r.json().catch(() => ({}));
-              throw new Error(
-                typeof detail === "object" && detail && "detail" in detail
-                  ? String((detail as { detail?: string }).detail)
-                  : await r.text(),
-              );
+              const text = formatHttpApiDetail(detail) || (await r.text());
+              console.warn("[WeCom] agent-signature failed", r.status, text);
+              throw new Error(text);
             }
-            return r.json() as Promise<{ timestamp: number | string; nonceStr: string; signature: string }>;
+            const sig = await r.json();
+            console.info("[WeCom] agent-signature ok", sig);
+            return sig as { timestamp: number | string; nonceStr: string; signature: string };
           },
         });
+        console.info("[WeCom] calling getCurExternalContact …");
         const res = await getCurExternalContact();
+        console.info("[WeCom] getCurExternalContact raw=", JSON.stringify(res));
         if (cancelled) return;
         if (res.errMsg === "getCurExternalContact:ok") {
-          setExternalContact({ kind: "success", userId: res.userId });
+          const uid = res.userId;
+          if (typeof uid === "string" && uid.length > 0) {
+            setExternalContact({ kind: "success", userId: uid });
+          } else {
+            setExternalContact({
+              kind: "error",
+              message: `接口返回成功但缺少 userId：${JSON.stringify(res)}`,
+            });
+          }
         } else {
-          setExternalContact({ kind: "error", message: res.errMsg });
+          const msg =
+            typeof res.errMsg === "string"
+              ? res.errMsg
+              : `getCurExternalContact 异常：${JSON.stringify(res)}`;
+          setExternalContact({ kind: "error", message: msg });
         }
       } catch (e) {
         if (cancelled) return;
+        const message = formatCaughtError(e);
+        console.warn("[WeCom] flow error", message, e);
         setExternalContact({
           kind: "error",
-          message: e instanceof Error ? e.message : String(e),
+          message,
         });
       }
     })();
