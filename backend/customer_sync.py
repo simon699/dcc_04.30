@@ -68,18 +68,22 @@ def _upsert_follow(sess: Session, ec: dict[str, Any], fi: dict[str, Any]) -> Non
     fid = fi.get("userid")
     if not eid or not fid:
         return
-    tags = fi.get("tag_id")
+    tag_ids = fi.get("tag_id")
+    tags_full = fi.get("tags")
     mobiles = fi.get("remark_mobiles")
     values = dict(
         follow_userid=fid,
         external_userid=eid,
         remark=fi.get("remark"),
+        remark_corp_name=fi.get("remark_corp_name"),
         description=fi.get("description"),
         createtime=fi.get("createtime"),
-        tag_id_json=tags,
+        tag_id_json=tag_ids,
+        tags_json=tags_full if isinstance(tags_full, list) else None,
         remark_mobiles_json=mobiles,
         state=fi.get("state"),
         add_way=fi.get("add_way"),
+        wechat_channels_json=fi.get("wechat_channels"),
         oper_userid=(
             str(fi.get("oper_userid")) if fi.get("oper_userid") is not None else None
         ),
@@ -88,12 +92,15 @@ def _upsert_follow(sess: Session, ec: dict[str, Any], fi: dict[str, Any]) -> Non
     stmt = mysql_insert(WecomCustomerFollow).values(**values)
     stmt = stmt.on_duplicate_key_update(
         remark=stmt.inserted.remark,
+        remark_corp_name=stmt.inserted.remark_corp_name,
         description=stmt.inserted.description,
         createtime=stmt.inserted.createtime,
         tag_id_json=stmt.inserted.tag_id_json,
+        tags_json=stmt.inserted.tags_json,
         remark_mobiles_json=stmt.inserted.remark_mobiles_json,
         state=stmt.inserted.state,
         add_way=stmt.inserted.add_way,
+        wechat_channels_json=stmt.inserted.wechat_channels_json,
         oper_userid=stmt.inserted.oper_userid,
         raw_follow_info_json=stmt.inserted.raw_follow_info_json,
         synced_at=func.now(),
