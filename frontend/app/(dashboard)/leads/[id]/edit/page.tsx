@@ -111,6 +111,10 @@ export default function LeadEditPage() {
   }, [entry, data, displayName]);
 
   async function submitCompleteFollow() {
+    if (!data) {
+      toast.error("线索数据未加载");
+      return;
+    }
     if (!nextFollow.trim()) {
       toast.error("请填写下次跟进时间");
       return;
