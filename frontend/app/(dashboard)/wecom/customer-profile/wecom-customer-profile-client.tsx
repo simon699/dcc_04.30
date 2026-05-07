@@ -68,7 +68,7 @@ export function WecomCustomerProfileClient({
         register({
           corpId: corpId.trim(),
           agentId: Number(agentId.trim()),
-          jsApiList: ["getCurExternalContact"],
+          jsApiList: ["getCurExternalContact", "openEnterpriseChat"],
           getConfigSignature: async (url) => {
             console.info("[WeCom] corp-signature url=", url);
             const r = await fetch(

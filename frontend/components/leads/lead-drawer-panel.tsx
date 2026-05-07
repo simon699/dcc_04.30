@@ -16,8 +16,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { tryOpenWecomExternalUserChat } from "@/lib/wecom-open-chat";
 import { useUiStore } from "@/lib/store/ui-store";
 import { cn } from "@/lib/utils";
+import { env as wecomEnv } from "@wecom/jssdk";
 
 /** 与后端 `DEFAULT_OWNER_USERID` / 分配候选人一致 */
 export const DEFAULT_LEAD_OWNER_USERID = "ShiFengwei";
@@ -78,6 +80,7 @@ export function LeadDrawerPanel({ leadId }: { leadId: string }) {
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [assignOpen, setAssignOpen] = React.useState(false);
   const [selectedOwner, setSelectedOwner] = React.useState("");
+  const [openingWecomChat, setOpeningWecomChat] = React.useState(false);
 
   const load = React.useCallback(() => {
     setLoading(true);
@@ -216,14 +219,31 @@ export function LeadDrawerPanel({ leadId }: { leadId: string }) {
             {hasWecom ? (
               <Button
                 size="sm"
-                onClick={() =>
-                  openDrawer({
-                    type: "wecom_image",
-                    leadId: data.id,
-                  })
-                }
+                disabled={openingWecomChat}
+                onClick={async () => {
+                  const ext = (data.external_userid ?? "").trim();
+                  if (!ext) return;
+                  setOpeningWecomChat(true);
+                  try {
+                    const r = await tryOpenWecomExternalUserChat({
+                      externalUserid: ext,
+                      internalUserid: data.owner_userid,
+                    });
+                    if (r.ok) return;
+                    if (wecomEnv.isWeCom) {
+                      toast.error(r.message ?? "无法打开会话");
+                      return;
+                    }
+                    openDrawer({
+                      type: "wecom_image",
+                      leadId: data.id,
+                    });
+                  } finally {
+                    setOpeningWecomChat(false);
+                  }
+                }}
               >
-                微信
+                {openingWecomChat ? "打开中…" : "微信"}
               </Button>
             ) : (
               <Button
