@@ -43,7 +43,7 @@ def _dt_iso(v: datetime | None) -> str | None:
 def list_leads(
     page: int = Query(1, ge=1),
     page_size: int = Query(8, ge=1, le=100),
-    keyword: str = Query("", description="手机号或姓名模糊"),
+    keyword: str = Query("", description="手机号、姓名或 external_userid 模糊"),
     customer_level: str = Query("", description="空为全部"),
     intent_model: str = Query("", description="空为全部"),
     next_follow_date: str = Query("", description="YYYY-MM-DD，按下次跟进日筛选"),
@@ -86,6 +86,7 @@ def list_leads(
                 or_(
                     WecomLead.phone.contains(kw),
                     WecomLead.customer_name.contains(kw),
+                    WecomLead.external_userid.contains(kw),
                 )
             )
         if customer_level.strip():
@@ -142,7 +143,7 @@ def list_leads(
 
 
 class LeadCreate(BaseModel):
-    phone: str = Field(..., min_length=1, max_length=32)
+    phone: str = Field(default="", max_length=32)
     customer_name: str = Field(default="", max_length=255)
     external_userid: str | None = Field(None, max_length=128)
     intent_model: str | None = Field(None, max_length=255)
@@ -153,13 +154,20 @@ class LeadCreate(BaseModel):
 @router.post("/api/leads")
 def create_lead(body: LeadCreate) -> dict[str, Any]:
     _require_mysql()
+    phone_s = (body.phone or "").strip()
+    ext_s = (body.external_userid or "").strip()
+    if not phone_s and not ext_s:
+        raise HTTPException(
+            status_code=400,
+            detail="手机号与 external_userid 须至少填写其一",
+        )
     sess = get_session()
     try:
         owner = (body.owner_userid or DEFAULT_OWNER_USERID).strip() or DEFAULT_OWNER_USERID
         lead = WecomLead(
-            phone=body.phone.strip(),
+            phone=phone_s or "",
             customer_name=(body.customer_name or "").strip(),
-            external_userid=(body.external_userid or "").strip() or None,
+            external_userid=ext_s or None,
             intent_model=(body.intent_model or "").strip() or None,
             customer_level=(body.customer_level or "").strip() or None,
             owner_userid=owner,

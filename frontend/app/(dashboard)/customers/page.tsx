@@ -16,6 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { CreateLeadSheet, type CreateLeadPrefill } from "@/components/leads/create-lead-sheet";
 import { formatHttpApiDetail } from "@/lib/utils";
 
 const DEFAULT_FOLLOW_USERID = "ShiFengwei";
@@ -56,6 +57,8 @@ export default function CustomersPage() {
   const [loading, setLoading] = React.useState(true);
   const [data, setData] = React.useState<ListResponse | null>(null);
   const [phones, setPhones] = React.useState<Record<number, string>>({});
+  const [createLeadOpen, setCreateLeadOpen] = React.useState(false);
+  const [createLeadPrefill, setCreateLeadPrefill] = React.useState<CreateLeadPrefill>({});
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -160,6 +163,16 @@ export default function CustomersPage() {
           <Button type="button" variant="secondary" onClick={applyFollowFilter}>
             查询
           </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setCreateLeadPrefill({});
+              setCreateLeadOpen(true);
+            }}
+          >
+            创建线索
+          </Button>
         </CardContent>
       </Card>
 
@@ -181,6 +194,7 @@ export default function CustomersPage() {
                     <TableHead className="hidden md:table-cell">公司</TableHead>
                     <TableHead className="hidden lg:table-cell">客户 ID</TableHead>
                     <TableHead className="min-w-[200px]">手机号</TableHead>
+                    <TableHead className="w-[120px] text-right">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -238,6 +252,23 @@ export default function CustomersPage() {
                           </Button>
                         </div>
                       </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => {
+                            setCreateLeadPrefill({
+                              phone: (phones[row.id] ?? row.phone ?? "").trim(),
+                              external_userid: row.external_userid,
+                              customer_name: displayName(row),
+                            });
+                            setCreateLeadOpen(true);
+                          }}
+                        >
+                          创建线索
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -274,6 +305,14 @@ export default function CustomersPage() {
           )}
         </CardContent>
       </Card>
+
+      <CreateLeadSheet
+        open={createLeadOpen}
+        onOpenChange={setCreateLeadOpen}
+        prefill={createLeadPrefill}
+        onSuccess={() => void load()}
+        formId="customers-center"
+      />
     </div>
   );
 }

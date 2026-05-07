@@ -13,14 +13,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import {
   Table,
   TableBody,
@@ -35,10 +27,8 @@ import { leadStatusLabel } from "@/lib/mock-data";
 import { useUiStore } from "@/lib/store/ui-store";
 import { cn } from "@/lib/utils";
 
-import {
-  ASSIGNABLE_OWNER_USERIDS,
-  DEFAULT_LEAD_OWNER_USERID,
-} from "./lead-drawer-panel";
+import { ASSIGNABLE_OWNER_USERIDS } from "./lead-drawer-panel";
+import { CreateLeadSheet } from "./create-lead-sheet";
 
 type LevelFilter = "all" | "H级" | "A级" | "B级" | "C级" | "N级";
 type ModelFilter = "all" | "XC60" | "XC70" | "EM90" | "XC30";
@@ -110,13 +100,6 @@ export function LeadList() {
   const [listError, setListError] = React.useState<string | null>(null);
 
   const [createOpen, setCreateOpen] = React.useState(false);
-  const [createPhone, setCreatePhone] = React.useState("");
-  const [createName, setCreateName] = React.useState("");
-  const [createIntent, setCreateIntent] = React.useState("");
-  const [createLevel, setCreateLevel] = React.useState<
-    "H级" | "A级" | "B级" | "C级" | "N级"
-  >("B级");
-  const [creating, setCreating] = React.useState(false);
 
   const [assignOpen, setAssignOpen] = React.useState(false);
   const [assignLeadId, setAssignLeadId] = React.useState<string | null>(null);
@@ -176,44 +159,6 @@ export function LeadList() {
     setSelectedOwner("");
   }
 
-  function submitCreate() {
-    const phone = createPhone.trim();
-    if (!phone) return;
-    setCreating(true);
-    fetch("/api/leads", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        phone,
-        customer_name: createName.trim(),
-        intent_model: createIntent.trim() || null,
-        customer_level: createLevel,
-        owner_userid: DEFAULT_LEAD_OWNER_USERID,
-      }),
-    })
-      .then(async (r) => {
-        if (!r.ok) {
-          const t = await r.text();
-          throw new Error(t || r.statusText);
-        }
-        return r.json();
-      })
-      .then(() => {
-        setListError(null);
-        toast.success("线索已创建");
-        setCreateOpen(false);
-        setCreatePhone("");
-        setCreateName("");
-        setCreateIntent("");
-        setCreateLevel("B级");
-        loadList();
-      })
-      .catch((e: Error) => {
-        setListError(e.message || "创建失败");
-      })
-      .finally(() => setCreating(false));
-  }
-
   function submitAssign() {
     if (!assignLeadId || !selectedOwner) return;
     setAssigning(true);
@@ -245,7 +190,7 @@ export function LeadList() {
           <Input
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
-            placeholder="手机号、姓名"
+            placeholder="手机号、姓名、客户 ID"
           />
           <select
             value={levelFilter}
@@ -399,88 +344,15 @@ export function LeadList() {
         </div>
       </div>
 
-      <Sheet open={createOpen} onOpenChange={setCreateOpen}>
-        <SheetContent className="flex w-full flex-col sm:max-w-md">
-          <SheetHeader>
-            <SheetTitle>新建线索</SheetTitle>
-            <SheetDescription>
-              默认归属人：{DEFAULT_LEAD_OWNER_USERID}（与后端一致）
-            </SheetDescription>
-          </SheetHeader>
-          <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1">
-            <div className="space-y-2">
-              <Label htmlFor="create-phone">手机号 *</Label>
-              <Input
-                id="create-phone"
-                value={createPhone}
-                onChange={(e) => setCreatePhone(e.target.value)}
-                placeholder="必填"
-                autoComplete="tel"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="create-name">客户姓名</Label>
-              <Input
-                id="create-name"
-                value={createName}
-                onChange={(e) => setCreateName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="create-intent">意向车型</Label>
-              <Input
-                id="create-intent"
-                value={createIntent}
-                onChange={(e) => setCreateIntent(e.target.value)}
-                placeholder="可填写如 XC60"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>客户等级</Label>
-              <select
-                value={createLevel}
-                onChange={(e) =>
-                  setCreateLevel(
-                    e.target.value as "H级" | "A级" | "B级" | "C级" | "N级"
-                  )
-                }
-                className={cn(
-                  "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs",
-                  "focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
-                )}
-              >
-                <option value="H级">H级</option>
-                <option value="A级">A级</option>
-                <option value="B级">B级</option>
-                <option value="C级">C级</option>
-                <option value="N级">N级</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label>默认归属人</Label>
-              <Input readOnly value={DEFAULT_LEAD_OWNER_USERID} className="bg-muted/50" />
-            </div>
-            <div className="mt-auto flex gap-2 pt-4">
-              <Button
-                type="button"
-                variant="outline"
-                className="flex-1"
-                onClick={() => setCreateOpen(false)}
-              >
-                取消
-              </Button>
-              <Button
-                type="button"
-                className="flex-1"
-                disabled={!createPhone.trim() || creating}
-                onClick={submitCreate}
-              >
-                {creating ? "提交中…" : "创建"}
-              </Button>
-            </div>
-          </div>
-        </SheetContent>
-      </Sheet>
+      <CreateLeadSheet
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onSuccess={() => {
+          setListError(null);
+          loadList();
+        }}
+        formId="leads-list"
+      />
 
       <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
         <DialogContent className="sm:max-w-md">
