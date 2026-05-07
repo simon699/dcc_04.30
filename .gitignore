@@ -1,24 +1,28 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# dependencies
-/node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
-
-# testing
-/coverage
-
-# next.js
+# 若在仓库根目录误执行 npm，忽略根级产物
+/node_modules/
 /.next/
-/out/
 
-# production
-/build
+# frontend — dependencies
+frontend/node_modules
+frontend/.pnp
+frontend/.pnp.*
+frontend/.yarn/*
+!frontend/.yarn/patches
+!frontend/.yarn/plugins
+!frontend/.yarn/releases
+!frontend/.yarn/versions
+
+# frontend — testing
+frontend/coverage
+
+# frontend — next.js
+frontend/.next/
+frontend/out/
+
+# frontend — production
+frontend/build
 
 # misc
 .DS_Store
@@ -38,4 +42,15 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
+frontend/next-env.d.ts
+
+# backend — Python
+backend/.venv/
+backend/__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/

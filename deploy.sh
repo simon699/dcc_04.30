@@ -4,10 +4,15 @@ set -euo pipefail
 
 APP_DIR="/opt/dcc_04.30"
 APP_NAME="dcc_04_30"
-PORT="3110"
+APP_NAME_API="${APP_NAME}_api"
+FRONTEND_DIR="${APP_DIR}/frontend"
+BACKEND_DIR="${APP_DIR}/backend"
+PORT_FRONTEND="3110"
+PORT_BACKEND="3111"
 DOMAIN="clues-demo.kongbaijiyi.com"
 NGINX_CONF="/etc/nginx/conf.d/${APP_NAME}.conf"
 SYSTEMD_SERVICE="/etc/systemd/system/${APP_NAME}.service"
+SYSTEMD_SERVICE_API="/etc/systemd/system/${APP_NAME_API}.service"
 
 echo "==> 开始部署 ${APP_NAME}"
 
@@ -23,6 +28,11 @@ fi
 
 if ! command -v npm >/dev/null 2>&1; then
   echo "未检测到 npm，请先安装 npm。"
+  exit 1
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "未检测到 python3，请先安装 Python 3.11+。"
   exit 1
 fi
 
@@ -47,15 +57,30 @@ if [[ ! -d "${APP_DIR}" ]]; then
   exit 1
 fi
 
-cd "${APP_DIR}"
+if [[ ! -d "${FRONTEND_DIR}" ]]; then
+  echo "前端目录不存在：${FRONTEND_DIR}"
+  exit 1
+fi
 
-echo "==> 安装依赖"
+if [[ ! -d "${BACKEND_DIR}" ]]; then
+  echo "后端目录不存在：${BACKEND_DIR}"
+  exit 1
+fi
+
+echo "==> 安装前端依赖"
+cd "${FRONTEND_DIR}"
 npm ci
 
-echo "==> 构建项目"
+echo "==> 构建前端"
 npm run build
 
-echo "==> 写入 systemd 服务 ${SYSTEMD_SERVICE}"
+echo "==> 安装 Python 后端（venv）"
+cd "${BACKEND_DIR}"
+python3 -m venv .venv
+.venv/bin/pip install --upgrade pip
+.venv/bin/pip install -r requirements.txt
+
+echo "==> 写入 systemd 服务 ${SYSTEMD_SERVICE}（Next.js）"
 cat > "${SYSTEMD_SERVICE}" <<EOF
 [Unit]
 Description=Next.js App ${APP_NAME}
@@ -63,8 +88,8 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=${APP_DIR}
-ExecStart=/usr/bin/env npm run start -- -p ${PORT}
+WorkingDirectory=${FRONTEND_DIR}
+ExecStart=/usr/bin/env npm run start -- -p ${PORT_FRONTEND}
 Restart=always
 RestartSec=5
 Environment=NODE_ENV=production
@@ -74,9 +99,29 @@ User=root
 WantedBy=multi-user.target
 EOF
 
+echo "==> 写入 systemd 服务 ${SYSTEMD_SERVICE_API}（FastAPI）"
+cat > "${SYSTEMD_SERVICE_API}" <<EOF
+[Unit]
+Description=FastAPI ${APP_NAME_API}
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=${BACKEND_DIR}
+ExecStart=${BACKEND_DIR}/.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port ${PORT_BACKEND}
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 echo "==> 重载并重启应用服务"
 systemctl daemon-reload
 systemctl enable "${APP_NAME}"
+systemctl enable "${APP_NAME_API}"
+systemctl restart "${APP_NAME_API}"
 systemctl restart "${APP_NAME}"
 
 echo "==> 写入 Nginx 配置 ${NGINX_CONF}"
@@ -85,8 +130,17 @@ server {
     listen 80;
     server_name ${DOMAIN};
 
+    location /api/ {
+        proxy_pass http://127.0.0.1:${PORT_BACKEND};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
     location / {
-        proxy_pass http://127.0.0.1:${PORT};
+        proxy_pass http://127.0.0.1:${PORT_FRONTEND};
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -105,10 +159,13 @@ systemctl restart nginx
 
 echo "==> 部署完成"
 echo "应用目录: ${APP_DIR}"
-echo "应用端口: ${PORT}"
+echo "前端端口: ${PORT_FRONTEND}"
+echo "后端端口: ${PORT_BACKEND}（经 Nginx /api/ 对外）"
 echo "域名访问: http://${DOMAIN}"
 echo
 echo "常用检查命令："
 echo "  systemctl status ${APP_NAME}"
+echo "  systemctl status ${APP_NAME_API}"
 echo "  journalctl -u ${APP_NAME} -f"
+echo "  journalctl -u ${APP_NAME_API} -f"
 echo "  systemctl status nginx"
