@@ -67,6 +67,12 @@ if [[ ! -d "${BACKEND_DIR}" ]]; then
   exit 1
 fi
 
+# 先停掉已有实例，释放端口与内存，避免 restart 长时间等待或端口占用导致新进程起不来
+echo "==> 停止已有应用服务（若存在）"
+systemctl stop "${APP_NAME}" 2>/dev/null || true
+systemctl stop "${APP_NAME_API}" 2>/dev/null || true
+sleep 2
+
 echo "==> 安装前端依赖"
 cd "${FRONTEND_DIR}"
 npm ci
@@ -94,6 +100,8 @@ Restart=always
 RestartSec=5
 Environment=NODE_ENV=production
 User=root
+KillMode=mixed
+TimeoutStopSec=30
 
 [Install]
 WantedBy=multi-user.target
@@ -112,6 +120,8 @@ ExecStart=${BACKEND_DIR}/.venv/bin/python -m uvicorn main:app --host 127.0.0.1 -
 Restart=always
 RestartSec=5
 User=root
+KillMode=mixed
+TimeoutStopSec=30
 
 [Install]
 WantedBy=multi-user.target
