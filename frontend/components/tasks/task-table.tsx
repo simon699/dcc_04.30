@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import { MessageCircle, Phone } from "lucide-react";
+import { toast } from "sonner";
+import { env as wecomEnv } from "@wecom/jssdk";
 
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -16,6 +18,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useUiStore } from "@/lib/store/ui-store";
+import { tryOpenWecomExternalUserChat } from "@/lib/wecom-open-chat";
 import { cn } from "@/lib/utils";
 
 type ChannelTab = "all" | "phone" | "wecom";
@@ -39,6 +42,7 @@ type ApiTaskRow = {
     target_phone: string | null;
     status: string;
   };
+  target_display_name?: string;
 };
 
 const PAGE_SIZE = 10;
@@ -95,6 +99,8 @@ function formatDue(v: string | null): string {
 }
 
 function displayTarget(row: ApiTaskRow): string {
+  const named = row.target_display_name?.trim();
+  if (named && named !== "—") return named;
   const ext = row.target.target_external_userid?.trim();
   const ph = row.target.target_phone?.trim();
   if (ext) return ext;
@@ -104,6 +110,7 @@ function displayTarget(row: ApiTaskRow): string {
 
 export function TaskTable() {
   const openDrawer = useUiStore((s) => s.openDrawer);
+  const [openingChat, setOpeningChat] = React.useState<string | null>(null);
 
   const [tab, setTab] = React.useState<ChannelTab>("all");
   const [keyword, setKeyword] = React.useState("");
@@ -296,7 +303,7 @@ export function TaskTable() {
                           {channelLabel(t.channel)}
                         </Badge>
                       </TableCell>
-                      <TableCell className="max-w-[200px] truncate font-mono text-xs text-muted-foreground">
+                      <TableCell className="max-w-[220px] truncate text-sm">
                         {displayTarget(row)}
                       </TableCell>
                       <TableCell>
@@ -324,11 +331,36 @@ export function TaskTable() {
                               size="sm"
                               variant="default"
                               className="gap-1"
-                              onClick={() => openDrawer({ type: "wecom_image" })}
-                              aria-label="企微演示"
+                              disabled={
+                                openingChat === row.row_id ||
+                                !(tg.target_external_userid ?? "").trim()
+                              }
+                              onClick={async () => {
+                                const ext = (tg.target_external_userid ?? "").trim();
+                                if (!ext) {
+                                  toast.message("当前对象缺少外部联系人 ID，无法打开会话");
+                                  return;
+                                }
+                                setOpeningChat(row.row_id);
+                                try {
+                                  const r = await tryOpenWecomExternalUserChat({
+                                    externalUserid: ext,
+                                    internalUserid: t.creator_userid,
+                                  });
+                                  if (r.ok) return;
+                                  if (wecomEnv.isWeCom) {
+                                    toast.error(r.message ?? "无法打开会话");
+                                    return;
+                                  }
+                                  openDrawer({ type: "wecom_image" });
+                                } finally {
+                                  setOpeningChat(null);
+                                }
+                              }}
+                              aria-label="打开企微会话"
                             >
                               <MessageCircle className="size-3.5" />
-                              企微
+                              {openingChat === row.row_id ? "打开中…" : "企微"}
                             </Button>
                           ) : null}
                           {t.channel === "phone" && phone ? (

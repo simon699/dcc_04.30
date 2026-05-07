@@ -5,20 +5,24 @@ import { getCurExternalContact, register, env as wecomEnv } from "@wecom/jssdk";
 import { MessageCircle, Phone, UserRound } from "lucide-react";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
+import type { CustomerProfileApi } from "@/components/customers/customer-center-drawer-panel";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
+import { useUiStore } from "@/lib/store/ui-store";
+import { tryOpenWecomExternalUserChat } from "@/lib/wecom-open-chat";
 import {
-  getDemoLeadRowDisplay,
-  getLead,
-  getLeadDetailDisplay,
-  getLeadFollowRecords,
-} from "@/lib/mock-data";
-import {
+  cn,
   expandWecomGetCurExternalContactError,
   formatCaughtError,
   formatHttpApiDetail,
@@ -29,20 +33,130 @@ type ExternalContactSdkState =
   | { kind: "success"; userId: string }
   | { kind: "error"; message: string };
 
+type TimelineEvent = {
+  at: string | null;
+  kind: string;
+  title: string;
+  detail: string;
+  lead_id?: string;
+  task_id?: string;
+  target_status?: string;
+};
+
+type LeadRow = {
+  id: string;
+  phone: string | null;
+  customer_name: string | null;
+  intent_model: string | null;
+  customer_level: string | null;
+  created_at: string | null;
+};
+
+type ApiTaskRow = {
+  row_id: string;
+  task: {
+    id: string;
+    name: string;
+    status: string;
+    deadline: string | null;
+    task_type: string;
+    channel: string;
+    creator_userid: string;
+  };
+  target: {
+    id: number;
+    status: string;
+    target_external_userid: string | null;
+    target_phone: string | null;
+  };
+  target_display_name?: string;
+};
+
+const DEFAULT_FOLLOW_USERID = "ShiFengwei";
+
+function parseTagLabels(raw: string | null | undefined): string[] {
+  const s = (raw ?? "").trim();
+  if (!s) return [];
+  try {
+    const v = JSON.parse(s) as unknown;
+    if (Array.isArray(v)) return v.map(String).filter(Boolean);
+    if (v && typeof v === "object") {
+      return Object.values(v as Record<string, unknown>).map(String).filter(Boolean);
+    }
+  } catch {
+    /* 非 JSON 时作为单行展示 */
+  }
+  return [s];
+}
+
+function taskStatusLabel(st: string, deadline: string | null): string {
+  if (st === "done" || st === "cancelled") {
+    return st === "done" ? "已完成" : "已取消";
+  }
+  if (deadline) {
+    const d = new Date(deadline);
+    if (!Number.isNaN(d.getTime()) && d.getTime() < Date.now()) {
+      return "已逾期";
+    }
+  }
+  if (st === "in_progress") return "进行中";
+  return "待办";
+}
+
+function targetStatusLabel(s: string): string {
+  switch (s) {
+    case "pending":
+      return "待处理";
+    case "in_progress":
+      return "进行中";
+    case "done":
+      return "已完成";
+    case "failed":
+      return "失败";
+    default:
+      return s;
+  }
+}
+
+function mapTargetForDrawer(
+  s: string
+): "pending" | "in_progress" | "done" | "failed" {
+  if (s === "done") return "done";
+  if (s === "failed") return "failed";
+  if (s === "in_progress") return "in_progress";
+  return "pending";
+}
+
+function targetLabel(row: ApiTaskRow): string {
+  const n = row.target_display_name?.trim();
+  if (n && n !== "—") return n;
+  const e = row.target.target_external_userid?.trim();
+  const ph = row.target.target_phone?.trim();
+  if (e) return e;
+  if (ph) return ph;
+  return "—";
+}
+
 export function WecomCustomerProfileClient({
-  leadId,
-  autoOpenFollow = false,
+  leadId: _leadId,
+  autoOpenFollow: _autoOpenFollow,
+  followUserid,
 }: {
+  /** 保留兼容（侧边栏入口可能仍传 leadId） */
   leadId?: string;
   autoOpenFollow?: boolean;
+  /** 查询 profile 时使用的跟进成员，默认 ShiFengwei */
+  followUserid?: string;
 }) {
+  void _leadId;
+  void _autoOpenFollow;
   const corpId = process.env.NEXT_PUBLIC_WECOM_CORP_ID ?? "";
   const agentId = process.env.NEXT_PUBLIC_WECOM_AGENT_ID ?? "";
+  const fu = (followUserid ?? DEFAULT_FOLLOW_USERID).trim();
 
-  const lead = getLead(leadId ?? "l1") ?? getLead("l1");
-  const [followOpen, setFollowOpen] = React.useState(autoOpenFollow);
-  const [followNote, setFollowNote] = React.useState("");
-  const [nextFollowAt, setNextFollowAt] = React.useState("");
+  const openDrawer = useUiStore((s) => s.openDrawer);
+  const [openingWecom, setOpeningWecom] = React.useState(false);
+
   const [externalContact, setExternalContact] = React.useState<ExternalContactSdkState>(() => {
     if (!corpId.trim() || !agentId.trim()) {
       return {
@@ -53,11 +167,18 @@ export function WecomCustomerProfileClient({
     }
     return { kind: "loading" };
   });
-  const [wecomClientHint, setWecomClientHint] = React.useState(false);
+  const wecomClientHint = !wecomEnv.isWeCom;
 
-  React.useEffect(() => {
-    setWecomClientHint(!wecomEnv.isWeCom);
-  }, []);
+  const [profile, setProfile] = React.useState<CustomerProfileApi | null>(null);
+  const [profileErr, setProfileErr] = React.useState<string | null>(null);
+  const [loadingProfile, setLoadingProfile] = React.useState(false);
+
+  const [timeline, setTimeline] = React.useState<TimelineEvent[]>([]);
+  const [loadingTimeline, setLoadingTimeline] = React.useState(false);
+  const [leads, setLeads] = React.useState<LeadRow[]>([]);
+  const [loadingLeads, setLoadingLeads] = React.useState(false);
+  const [tasks, setTasks] = React.useState<ApiTaskRow[]>([]);
+  const [loadingTasks, setLoadingTasks] = React.useState(false);
 
   React.useEffect(() => {
     if (!corpId.trim() || !agentId.trim()) return;
@@ -70,39 +191,35 @@ export function WecomCustomerProfileClient({
           agentId: Number(agentId.trim()),
           jsApiList: ["getCurExternalContact", "openEnterpriseChat"],
           getConfigSignature: async (url) => {
-            console.info("[WeCom] corp-signature url=", url);
             const r = await fetch(
               `/api/wecom/jssdk/corp-signature?url=${encodeURIComponent(url)}`,
             );
             if (!r.ok) {
               const detail = await r.json().catch(() => ({}));
-              const text = formatHttpApiDetail(detail) || (await r.text());
-              console.warn("[WeCom] corp-signature failed", r.status, text);
-              throw new Error(text);
+              throw new Error(formatHttpApiDetail(detail) || (await r.text()));
             }
-            const sig = await r.json();
-            console.info("[WeCom] corp-signature ok");
-            return sig as { timestamp: number | string; nonceStr: string; signature: string };
+            return r.json() as Promise<{
+              timestamp: number | string;
+              nonceStr: string;
+              signature: string;
+            }>;
           },
           getAgentConfigSignature: async (url) => {
-            console.info("[WeCom] agent-signature url=", url);
             const r = await fetch(
               `/api/wecom/jssdk/agent-signature?url=${encodeURIComponent(url)}`,
             );
             if (!r.ok) {
               const detail = await r.json().catch(() => ({}));
-              const text = formatHttpApiDetail(detail) || (await r.text());
-              console.warn("[WeCom] agent-signature failed", r.status, text);
-              throw new Error(text);
+              throw new Error(formatHttpApiDetail(detail) || (await r.text()));
             }
-            const sig = await r.json();
-            console.info("[WeCom] agent-signature ok", sig);
-            return sig as { timestamp: number | string; nonceStr: string; signature: string };
+            return r.json() as Promise<{
+              timestamp: number | string;
+              nonceStr: string;
+              signature: string;
+            }>;
           },
         });
-        console.info("[WeCom] calling getCurExternalContact …");
         const res = await getCurExternalContact();
-        console.info("[WeCom] getCurExternalContact raw=", JSON.stringify(res));
         if (cancelled) return;
         if (res.errMsg === "getCurExternalContact:ok") {
           const uid = res.userId;
@@ -126,11 +243,9 @@ export function WecomCustomerProfileClient({
         }
       } catch (e) {
         if (cancelled) return;
-        const message = formatCaughtError(e);
-        console.warn("[WeCom] flow error", message, e);
         setExternalContact({
           kind: "error",
-          message,
+          message: formatCaughtError(e),
         });
       }
     })();
@@ -139,38 +254,132 @@ export function WecomCustomerProfileClient({
     };
   }, [corpId, agentId]);
 
-  if (!lead) return null;
+  const extUserId =
+    externalContact.kind === "success" ? externalContact.userId.trim() : "";
 
-  const detail = getLeadDetailDisplay(lead);
-  const demo = getDemoLeadRowDisplay(lead);
-  const records = getLeadFollowRecords(lead.id);
-  const phoneDisplay = lead.phone ? lead.phone.replace(/^\+86/, "") : "无手机号";
+  const loadProfile = React.useCallback(async () => {
+    if (!extUserId) return;
+    setLoadingProfile(true);
+    setProfileErr(null);
+    try {
+      const q = new URLSearchParams({
+        follow_userid: fu,
+        external_userid: extUserId,
+      });
+      const r = await fetch(`/api/customers/profile?${q}`);
+      let json: unknown;
+      try {
+        json = await r.json();
+      } catch {
+        throw new Error(`HTTP ${r.status}`);
+      }
+      if (!r.ok) throw new Error(formatHttpApiDetail(json));
+      setProfile(json as CustomerProfileApi);
+    } catch (e) {
+      setProfile(null);
+      setProfileErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoadingProfile(false);
+    }
+  }, [extUserId, fu]);
+
+  React.useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- profile 请求
+    void loadProfile();
+  }, [loadProfile]);
+
+  const loadTimeline = React.useCallback(async () => {
+    if (!extUserId) return;
+    setLoadingTimeline(true);
+    try {
+      const q = new URLSearchParams({ external_userid: extUserId, limit: "80" });
+      const r = await fetch(`/api/customers/timeline?${q}`);
+      const json = (await r.json()) as { items?: TimelineEvent[] };
+      if (!r.ok) throw new Error(formatHttpApiDetail(json));
+      setTimeline(json.items ?? []);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+      setTimeline([]);
+    } finally {
+      setLoadingTimeline(false);
+    }
+  }, [extUserId]);
+
+  const loadLeads = React.useCallback(async () => {
+    if (!extUserId) return;
+    setLoadingLeads(true);
+    try {
+      const q = new URLSearchParams({
+        external_userid: extUserId,
+        page: "1",
+        page_size: "50",
+      });
+      const r = await fetch(`/api/leads/by-external?${q}`);
+      const json = (await r.json()) as { items?: LeadRow[] };
+      if (!r.ok) throw new Error(formatHttpApiDetail(json));
+      setLeads(json.items ?? []);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+      setLeads([]);
+    } finally {
+      setLoadingLeads(false);
+    }
+  }, [extUserId]);
+
+  const loadTasks = React.useCallback(async () => {
+    if (!extUserId) return;
+    setLoadingTasks(true);
+    try {
+      const q = new URLSearchParams({
+        page: "1",
+        page_size: "50",
+        target_external_userid: extUserId,
+      });
+      const r = await fetch(`/api/task-rows?${q}`);
+      const json = (await r.json()) as { items?: ApiTaskRow[] };
+      if (!r.ok) throw new Error(formatHttpApiDetail(json));
+      setTasks(json.items ?? []);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+      setTasks([]);
+    } finally {
+      setLoadingTasks(false);
+    }
+  }, [extUserId]);
+
+  React.useEffect(() => {
+    if (!extUserId) return;
+    /* eslint-disable react-hooks/set-state-in-effect -- 并行拉取 tab 数据 */
+    void loadTimeline();
+    void loadLeads();
+    void loadTasks();
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [extUserId, loadTimeline, loadLeads, loadTasks]);
+
+  const displayName = profile
+    ? (profile.display_name || "").trim() || profile.external_userid
+    : extUserId || "—";
+  const phoneDisplay = (profile?.phone ?? "").trim();
+  const tagLabels = React.useMemo(() => {
+    const a = parseTagLabels(profile?.tags_json);
+    const b = parseTagLabels(profile?.tag_id_json);
+    return [...new Set([...a, ...b])];
+  }, [profile?.tags_json, profile?.tag_id_json]);
 
   return (
     <div className="mx-auto w-full max-w-md space-y-4 pb-6">
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">外部联系人 userId</CardTitle>
+          <CardTitle className="text-base">外部联系人</CardTitle>
           <p className="text-sm font-normal text-muted-foreground">
-            接口{" "}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">ww.getCurExternalContact</code>{" "}
-            （
-            <a
-              className="underline underline-offset-2"
-              href="https://developer.work.weixin.qq.com/document/path/100746"
-              target="_blank"
-              rel="noreferrer"
-            >
-              文档 100746
-            </a>
-            ）。返回值为当前外部联系人 userId；须使用应用身份完成{" "}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">ww.register</code>，且入口需为客户详情或外部单聊工具栏等支持场景。
+            <code className="rounded bg-muted px-1 py-0.5 text-xs">getCurExternalContact</code>
+            返回当前会话外部联系人 ID；须在企业微信内从支持的入口打开。
           </p>
         </CardHeader>
         <CardContent className="space-y-2">
           {wecomClientHint ? (
             <p className="text-sm text-amber-600 dark:text-amber-500">
-              当前不在企业微信内置浏览器中，该接口通常无法返回客户 ID；请在企业微信内从客户会话工具栏等入口打开本页验证。
+              当前不在企业微信内置浏览器中，该接口通常无法返回客户 ID。
             </p>
           ) : null}
           {externalContact.kind === "loading" ? (
@@ -187,170 +396,281 @@ export function WecomCustomerProfileClient({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent className="pt-5">
-          <div className="flex items-start gap-3">
-            <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <UserRound className="size-6" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm text-muted-foreground">昵称</p>
-              <h1 className="truncate text-xl font-semibold">{lead.name}</h1>
-              <p className="mt-1 text-sm text-muted-foreground">手机号：{phoneDisplay}</p>
-            </div>
-          </div>
-
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <Button
-              disabled={!lead.phone}
-              onClick={() => {
-                setFollowOpen(true);
-                if (lead.phone) {
-                  window.location.href = `tel:${lead.phone.replace(/\s/g, "")}`;
-                } else {
-                  toast.message("当前客户无手机号");
-                }
-              }}
-            >
-              <Phone className="size-4" />
-              电话
-            </Button>
-            <Button variant="outline" onClick={() => setFollowOpen(true)} className="gap-1">
-              <MessageCircle className="size-4" />
-              跟进
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Tabs defaultValue="lead" className="w-full">
-        <TabsList variant="line" className="w-full justify-start bg-transparent p-0">
-          <TabsTrigger value="lead" className="px-3 py-2">
-            线索
-          </TabsTrigger>
-          <TabsTrigger value="track" className="px-3 py-2">
-            客户轨迹
-          </TabsTrigger>
-          <TabsTrigger value="tag" className="px-3 py-2">
-            标签
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="lead" className="mt-3">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">线索信息</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-3 text-sm">
-              <p>
-                <span className="text-muted-foreground">意向车型：</span>
-                {demo.intentModel}
-              </p>
-              <p>
-                <span className="text-muted-foreground">客户等级：</span>
-                {demo.level}
-              </p>
-              <p>
-                <span className="text-muted-foreground">线索产生时间：</span>
-                {new Date(detail.createdAt).toLocaleString("zh-CN")}
-              </p>
-              <p>
-                <span className="text-muted-foreground">下次跟进时间：</span>
-                {new Date(detail.nextFollowUpAt).toLocaleString("zh-CN")}
-              </p>
-              <p>
-                <span className="text-muted-foreground">备注：</span>
-                {detail.note}
-              </p>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="track" className="mt-3">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">客户跟进时间轴</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ul className="space-y-3">
-                {records.map((record) => (
-                  <li key={record.id} className="relative pl-5">
-                    <span className="absolute left-0 top-1.5 size-2 rounded-full bg-primary" />
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(record.at).toLocaleString("zh-CN")}
+      {externalContact.kind === "success" ? (
+        <Card>
+          <CardContent className="pt-5">
+            {loadingProfile && !profile ? (
+              <div className="space-y-2">
+                <Skeleton className="h-8 w-48" />
+                <Skeleton className="h-4 w-full" />
+              </div>
+            ) : profileErr && !profile ? (
+              <p className="text-sm text-destructive whitespace-pre-wrap">{profileErr}</p>
+            ) : profile ? (
+              <>
+                <div className="flex items-start gap-3">
+                  {profile.avatar ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={profile.avatar}
+                      alt=""
+                      className="size-12 shrink-0 rounded-full bg-muted object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                      <UserRound className="size-6" />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-muted-foreground">客户</p>
+                    <h1 className="truncate text-xl font-semibold">{displayName}</h1>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      手机：{phoneDisplay || "无"}
                     </p>
-                    <p className="mt-1 text-sm">{record.content}</p>
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
-        </TabsContent>
+                    {profile.corp_name ? (
+                      <p className="mt-0.5 text-xs text-muted-foreground">{profile.corp_name}</p>
+                    ) : null}
+                  </div>
+                </div>
 
-        <TabsContent value="tag" className="mt-3">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">标签</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">暂无标签数据</p>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {phoneDisplay ? (
+                    <a
+                      href={`tel:${phoneDisplay.replace(/\s/g, "")}`}
+                      className={cn(buttonVariants(), "gap-1")}
+                    >
+                      <Phone className="size-4" />
+                      电话
+                    </a>
+                  ) : (
+                    <Button disabled variant="outline" className="gap-1">
+                      <Phone className="size-4" />
+                      无手机号
+                    </Button>
+                  )}
+                  <Button
+                    variant="secondary"
+                    className="gap-1"
+                    disabled={openingWecom || !profile.external_userid.trim()}
+                    onClick={async () => {
+                      const eid = profile.external_userid.trim();
+                      if (!eid) return;
+                      setOpeningWecom(true);
+                      try {
+                        const r = await tryOpenWecomExternalUserChat({
+                          externalUserid: eid,
+                          internalUserid: profile.follow_userid,
+                        });
+                        if (r.ok) return;
+                        if (wecomEnv.isWeCom) {
+                          toast.error(r.message ?? "无法打开会话");
+                          return;
+                        }
+                        openDrawer({ type: "wecom_image" });
+                      } finally {
+                        setOpeningWecom(false);
+                      }
+                    }}
+                  >
+                    <MessageCircle className="size-4" />
+                    {openingWecom ? "打开中…" : "会话"}
+                  </Button>
+                </div>
+              </>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
-      {followOpen ? (
-        <div className="h-[70vh] max-h-[70vh] rounded-t-2xl border bg-background">
-          <div className="border-b px-4 py-3 text-left">
-            <h3 className="text-base font-medium">跟进处理</h3>
-            <p className="text-sm text-muted-foreground">电话和跟进都在此处补充记录</p>
-          </div>
-          <div className="h-[calc(70vh-57px)] overflow-y-auto px-4 py-4">
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="h5-next">下次跟进时间</Label>
-                <Input
-                  id="h5-next"
-                  type="datetime-local"
-                  value={nextFollowAt}
-                  onChange={(e) => setNextFollowAt(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="h5-note">跟进内容</Label>
-                <Textarea
-                  id="h5-note"
-                  value={followNote}
-                  onChange={(e) => setFollowNote(e.target.value)}
-                  rows={5}
-                  placeholder="输入本次沟通内容、客户反馈、下一步动作"
-                />
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <Button variant="outline" onClick={() => setFollowOpen(false)}>
-                  收起
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setFollowNote("");
-                    setNextFollowAt("");
-                  }}
-                >
-                  清空
-                </Button>
-                <Button
-                  onClick={() => {
-                    toast.success("跟进记录已保存（演示）");
-                    setFollowOpen(false);
-                  }}
-                >
-                  保存
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
+      {externalContact.kind === "success" && profile ? (
+        <Tabs defaultValue="timeline" className="w-full">
+          <TabsList variant="line" className="w-full flex-wrap justify-start bg-transparent p-0">
+            <TabsTrigger value="timeline" className="px-3 py-2">
+              客户轨迹
+            </TabsTrigger>
+            <TabsTrigger value="leads" className="px-3 py-2">
+              线索
+            </TabsTrigger>
+            <TabsTrigger value="tasks" className="px-3 py-2">
+              任务
+            </TabsTrigger>
+            <TabsTrigger value="tags" className="px-3 py-2">
+              标签
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="timeline" className="mt-3">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">轨迹</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {loadingTimeline ? (
+                  <p className="text-sm text-muted-foreground">加载中…</p>
+                ) : timeline.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">暂无记录</p>
+                ) : (
+                  <ul className="space-y-3">
+                    {timeline.map((ev, i) => (
+                      <li key={`${ev.at}-${i}`} className="relative pl-5">
+                        <span className="absolute left-0 top-1.5 size-2 rounded-full bg-primary" />
+                        <p className="text-xs text-muted-foreground">
+                          {ev.at
+                            ? new Date(ev.at).toLocaleString("zh-CN")
+                            : "—"}
+                          {ev.kind === "lead_follow" ? (
+                            <Badge variant="outline" className="ml-2 font-normal">
+                              线索
+                            </Badge>
+                          ) : null}
+                          {ev.kind === "task_target" ? (
+                            <Badge variant="secondary" className="ml-2 font-normal">
+                              任务
+                            </Badge>
+                          ) : null}
+                        </p>
+                        <p className="mt-0.5 text-sm font-medium">{ev.title}</p>
+                        {ev.detail ? (
+                          <p className="mt-1 text-sm text-muted-foreground">{ev.detail}</p>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="leads" className="mt-3">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">线索</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0 sm:p-2">
+                {loadingLeads ? (
+                  <p className="px-4 py-3 text-sm text-muted-foreground">加载中…</p>
+                ) : leads.length === 0 ? (
+                  <p className="px-4 py-3 text-sm text-muted-foreground">暂无线索</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>客户</TableHead>
+                        <TableHead className="hidden sm:table-cell">意向</TableHead>
+                        <TableHead className="w-[72px]"> </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {leads.map((l) => (
+                        <TableRow key={l.id}>
+                          <TableCell>
+                            <div className="font-medium">
+                              {(l.customer_name ?? "").trim() || "—"}
+                            </div>
+                            <div className="text-xs text-muted-foreground">{l.phone ?? "—"}</div>
+                          </TableCell>
+                          <TableCell className="hidden sm:table-cell">
+                            {l.intent_model ?? "—"}
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              size="sm"
+                              variant="link"
+                              className="h-auto px-0"
+                              onClick={() => openDrawer({ type: "lead", id: l.id })}
+                            >
+                              详情
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="tasks" className="mt-3">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">任务</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0 sm:p-2">
+                {loadingTasks ? (
+                  <p className="px-4 py-3 text-sm text-muted-foreground">加载中…</p>
+                ) : tasks.length === 0 ? (
+                  <p className="px-4 py-3 text-sm text-muted-foreground">暂无任务对象</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>任务</TableHead>
+                        <TableHead className="hidden sm:table-cell">状态</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {tasks.map((row) => {
+                        const t = row.task;
+                        const tg = row.target;
+                        return (
+                          <TableRow key={row.row_id}>
+                            <TableCell>
+                              <button
+                                type="button"
+                                className="text-left font-medium text-primary underline-offset-4 hover:underline"
+                                onClick={() =>
+                                  openDrawer({
+                                    type: "task",
+                                    id: t.id,
+                                    apiTargetId: String(tg.id),
+                                    currentCustomerName: targetLabel(row),
+                                    currentCustomerStatus: mapTargetForDrawer(tg.status),
+                                  })
+                                }
+                              >
+                                {t.name}
+                              </button>
+                              <div className="text-xs text-muted-foreground">
+                                {taskStatusLabel(t.status, t.deadline)} ·{" "}
+                                {targetStatusLabel(tg.status)}
+                              </div>
+                            </TableCell>
+                            <TableCell className="hidden text-sm sm:table-cell">
+                              {taskStatusLabel(t.status, t.deadline)}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="tags" className="mt-3">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">标签</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {tagLabels.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">暂无标签</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {tagLabels.map((t) => (
+                      <Badge key={t} variant="secondary" className="font-normal">
+                        {t}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       ) : null}
     </div>
   );

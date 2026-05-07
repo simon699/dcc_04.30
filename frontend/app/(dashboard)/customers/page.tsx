@@ -38,6 +38,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useUiStore } from "@/lib/store/ui-store";
 import { formatHttpApiDetail } from "@/lib/utils";
 
 const DEFAULT_FOLLOW_USERID = "ShiFengwei";
@@ -76,6 +77,7 @@ function displayPhonePreview(p: string | null | undefined): string {
 }
 
 export default function CustomersPage() {
+  const openDrawer = useUiStore((s) => s.openDrawer);
   const [followUserid, setFollowUserid] = React.useState(DEFAULT_FOLLOW_USERID);
   const [draftFollowUserid, setDraftFollowUserid] = React.useState(DEFAULT_FOLLOW_USERID);
   const [page, setPage] = React.useState(1);
@@ -233,7 +235,17 @@ export default function CustomersPage() {
                 </TableHeader>
                 <TableBody>
                   {data.items.map((row) => (
-                    <TableRow key={row.id}>
+                    <TableRow
+                      key={row.id}
+                      className="cursor-pointer"
+                      onClick={() =>
+                        openDrawer({
+                          type: "customer",
+                          follow_userid: row.follow_userid,
+                          external_userid: row.external_userid,
+                        })
+                      }
+                    >
                       <TableCell>
                         {row.avatar ? (
                           // eslint-disable-next-line @next/next/no-img-element
@@ -277,7 +289,10 @@ export default function CustomersPage() {
                             size="sm"
                             variant="outline"
                             className="gap-1"
-                            onClick={() => openEdit(row)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEdit(row);
+                            }}
                           >
                             <Pencil className="size-3.5" />
                             编辑
@@ -286,7 +301,8 @@ export default function CustomersPage() {
                             type="button"
                             size="sm"
                             variant="secondary"
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setCreateLeadPrefill({
                                 phone: (row.phone ?? "").trim(),
                                 external_userid: row.external_userid,
@@ -300,7 +316,8 @@ export default function CustomersPage() {
                           <Button
                             type="button"
                             size="sm"
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               const ph = (row.phone ?? "").trim();
                               setTaskPrefill({
                                 targets: [

@@ -6,9 +6,9 @@ import { WecomCustomerProfileClient } from "./wecom-customer-profile-client";
 export default async function WecomCustomerProfilePage({
   searchParams,
 }: {
-  searchParams: Promise<{ leadId?: string }>;
+  searchParams: Promise<{ leadId?: string; followUserid?: string }>;
 }) {
-  const { leadId } = await searchParams;
+  const { leadId, followUserid } = await searchParams;
   return (
     <Suspense
       fallback={
@@ -19,7 +19,7 @@ export default async function WecomCustomerProfilePage({
         </div>
       }
     >
-      <WecomCustomerProfileClient leadId={leadId} />
+      <WecomCustomerProfileClient leadId={leadId} followUserid={followUserid} />
     </Suspense>
   );
 }

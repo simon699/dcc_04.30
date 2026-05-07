@@ -34,6 +34,11 @@ export type DrawerPayload =
   | {
       type: "wecom_image";
       leadId?: string;
+    }
+  | {
+      type: "customer";
+      follow_userid: string;
+      external_userid: string;
     };
 
 interface UiState {

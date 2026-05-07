@@ -8,11 +8,17 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import select, func as sql_func
+from sqlalchemy import or_, select, func as sql_func
 from sqlalchemy.orm import Session, selectinload
 
 from db import get_session
-from models import WecomTask, WecomTaskTarget
+from models import (
+    WecomCustomerFollow,
+    WecomExternalCustomer,
+    WecomLead,
+    WecomTask,
+    WecomTaskTarget,
+)
 
 router = APIRouter()
 
@@ -75,6 +81,59 @@ def _serialize_task(t: WecomTask, targets: list[WecomTaskTarget]) -> dict[str, A
     }
 
 
+def _batch_target_display_names(
+    sess: Session,
+    pairs: list[tuple[WecomTask, WecomTaskTarget]],
+) -> dict[int, str]:
+    """external_userid → 昵称（外部联系人表 / 跟进备注）；phone-only → 线索姓名。"""
+    ext_ids: set[str] = set()
+    phones: set[str] = set()
+    for _, tg in pairs:
+        if tg.target_external_userid and str(tg.target_external_userid).strip():
+            ext_ids.add(str(tg.target_external_userid).strip())
+        if tg.target_phone and str(tg.target_phone).strip():
+            phones.add(str(tg.target_phone).strip())
+
+    name_by_ext: dict[str, str] = {}
+    if ext_ids:
+        for ec in sess.scalars(
+            select(WecomExternalCustomer).where(
+                WecomExternalCustomer.external_userid.in_(ext_ids)
+            )
+        ).all():
+            if (ec.name or "").strip():
+                name_by_ext[ec.external_userid] = (ec.name or "").strip()
+        for cf in sess.scalars(
+            select(WecomCustomerFollow).where(
+                WecomCustomerFollow.external_userid.in_(ext_ids)
+            )
+        ).all():
+            if cf.external_userid not in name_by_ext and (cf.remark or "").strip():
+                name_by_ext[cf.external_userid] = (cf.remark or "").strip()
+
+    name_by_phone: dict[str, str] = {}
+    if phones:
+        conds = [WecomLead.phone == p for p in phones]
+        for lead in sess.scalars(select(WecomLead).where(or_(*conds))).all():
+            ph = (lead.phone or "").strip()
+            if ph and (lead.customer_name or "").strip():
+                name_by_phone[ph] = (lead.customer_name or "").strip()
+
+    out: dict[int, str] = {}
+    for _, tg in pairs:
+        ext = (tg.target_external_userid or "").strip()
+        ph = (tg.target_phone or "").strip()
+        label = ""
+        if ext:
+            label = name_by_ext.get(ext, "") or ext
+        elif ph:
+            label = name_by_phone.get(ph, "") or ph
+        else:
+            label = "—"
+        out[tg.id] = label
+    return out
+
+
 def _maybe_refresh_task_done(sess: Session, task_id: int) -> None:
     """若全部对象已 done/failed 中视为完成，可在此扩展规则；当前仅同步 completed_at 供前端展示。"""
     task = sess.get(WecomTask, task_id)
@@ -103,6 +162,10 @@ def list_task_rows(
         "",
         description="对象状态筛选 pending/in_progress/done/failed，空为全部",
     ),
+    target_external_userid: str = Query(
+        "",
+        description="按外部联系人过滤任务对象行",
+    ),
 ) -> dict[str, Any]:
     """任务中心：按任务对象展平，一行一个客户。"""
     _require_mysql()
@@ -130,12 +193,20 @@ def list_task_rows(
         if row_status.strip():
             stmt = stmt.where(WecomTaskTarget.status == row_status.strip())
             count_stmt = count_stmt.where(WecomTaskTarget.status == row_status.strip())
+        tex = target_external_userid.strip()
+        if tex:
+            stmt = stmt.where(WecomTaskTarget.target_external_userid == tex)
+            count_stmt = count_stmt.where(
+                WecomTaskTarget.target_external_userid == tex
+            )
 
         total = int(sess.execute(count_stmt).scalar_one() or 0)
 
         stmt = stmt.order_by(WecomTask.id.desc(), WecomTaskTarget.id.asc())
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         pairs = sess.execute(stmt).all()
+
+        name_map = _batch_target_display_names(sess, list(pairs))
 
         flat: list[dict[str, Any]] = []
         for t, tg in pairs:
@@ -144,6 +215,7 @@ def list_task_rows(
                     "row_id": f"{t.id}-{tg.id}",
                     "task": _serialize_task(t, []),
                     "target": _serialize_target(tg),
+                    "target_display_name": name_map.get(tg.id, "—"),
                 }
             )
 

@@ -29,6 +29,7 @@ import { TaskDetailPanel } from "@/components/tasks/task-detail-panel";
 import { useUiStore } from "@/lib/store/ui-store";
 import { cn } from "@/lib/utils";
 import { WecomCustomerProfileClient } from "@/app/(dashboard)/wecom/customer-profile/wecom-customer-profile-client";
+import { CustomerCenterDrawerPanel } from "@/components/customers/customer-center-drawer-panel";
 
 export function DetailDrawer() {
   const drawerOpen = useUiStore((s) => s.drawerOpen);
@@ -44,6 +45,7 @@ export function DetailDrawer() {
     drawerPayload?.type === "task" && !isApiTask ? getTask(drawerPayload.id) : undefined;
   const isWecomProfileDrawer = drawerPayload?.type === "wecom_profile";
   const isWecomImageDrawer = drawerPayload?.type === "wecom_image";
+  const isCustomerDrawer = drawerPayload?.type === "customer";
   const drawerWidthClass = isWecomProfileDrawer
     ? "flex h-full w-full max-w-full flex-col gap-0 p-0 sm:!w-[420px] sm:!max-w-[420px]"
     : isWecomImageDrawer
@@ -73,6 +75,8 @@ export function DetailDrawer() {
   const title =
     drawerPayload?.type === "lead"
       ? "线索详情"
+      : drawerPayload?.type === "customer"
+        ? "客户详情"
       : isApiTask
         ? "任务详情"
       : drawerPayload?.type === "wecom_profile"
@@ -113,6 +117,8 @@ export function DetailDrawer() {
           <SheetDescription className="text-left">
             {drawerPayload?.type === "task"
               ? "任务详情 · 列表上下文保留在左侧"
+              : drawerPayload?.type === "customer"
+                ? "客户中心 · 线索与任务"
               : drawerPayload?.type === "wecom_profile"
                 ? "企微侧边栏 · 客户画像"
               : drawerPayload?.type === "wecom_image"
@@ -138,6 +144,12 @@ export function DetailDrawer() {
                 autoOpenFollow={drawerPayload.autoOpenFollow}
               />
             </div>
+          ) : null}
+          {isCustomerDrawer && drawerPayload?.type === "customer" ? (
+            <CustomerCenterDrawerPanel
+              follow_userid={drawerPayload.follow_userid}
+              external_userid={drawerPayload.external_userid}
+            />
           ) : null}
           {drawerPayload?.type === "lead" && leadId ? (
             <LeadDrawerPanel leadId={leadId} />

@@ -276,6 +276,57 @@ def get_lead_detail(lead_id: int) -> dict[str, Any]:
         sess.close()
 
 
+@router.get("/api/leads/by-external")
+def list_leads_by_external_userid(
+    external_userid: str = Query(..., description="外部联系人 external_userid"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+) -> dict[str, Any]:
+    """按 external_userid 精确匹配线索列表。"""
+    _require_mysql()
+    ext = external_userid.strip()
+    if not ext:
+        raise HTTPException(status_code=400, detail="缺少 external_userid")
+
+    sess: Session = get_session()
+    try:
+        stmt = select(WecomLead).where(WecomLead.external_userid == ext)
+        count_stmt = select(sql_func.count()).select_from(
+            stmt.with_only_columns(WecomLead.id).order_by(None).subquery()
+        )
+        total = int(sess.execute(count_stmt).scalar_one() or 0)
+
+        stmt = stmt.order_by(WecomLead.id.desc())
+        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+        leads = sess.scalars(stmt).all()
+
+        items = []
+        for lead in leads:
+            items.append(
+                {
+                    "id": str(lead.id),
+                    "phone": lead.phone,
+                    "customer_name": lead.customer_name,
+                    "external_userid": lead.external_userid,
+                    "intent_model": lead.intent_model,
+                    "customer_level": lead.customer_level,
+                    "owner_userid": lead.owner_userid,
+                    "created_at": _dt_iso(lead.created_at),
+                }
+            )
+
+        total_pages = (total + page_size - 1) // page_size if total else 0
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+        }
+    finally:
+        sess.close()
+
+
 class LeadFollowCreate(BaseModel):
     follow_at: str | None = Field(None, description="ISO 时间，默认当前")
     remark: str | None = None
