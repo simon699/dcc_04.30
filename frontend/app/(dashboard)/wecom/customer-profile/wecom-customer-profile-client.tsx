@@ -1,13 +1,15 @@
 "use client";
 
 import * as React from "react";
+import { getCurExternalContact, register, env as wecomEnv } from "@wecom/jssdk";
 import { MessageCircle, Phone, UserRound } from "lucide-react";
 import { toast } from "sonner";
 
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -17,6 +19,11 @@ import {
   getLeadFollowRecords,
 } from "@/lib/mock-data";
 
+type ExternalContactSdkState =
+  | { kind: "loading" }
+  | { kind: "success"; userId: string }
+  | { kind: "error"; message: string };
+
 export function WecomCustomerProfileClient({
   leadId,
   autoOpenFollow = false,
@@ -24,10 +31,87 @@ export function WecomCustomerProfileClient({
   leadId?: string;
   autoOpenFollow?: boolean;
 }) {
+  const corpId = process.env.NEXT_PUBLIC_WECOM_CORP_ID ?? "";
+  const agentId = process.env.NEXT_PUBLIC_WECOM_AGENT_ID ?? "";
+
   const lead = getLead(leadId ?? "l1") ?? getLead("l1");
   const [followOpen, setFollowOpen] = React.useState(autoOpenFollow);
   const [followNote, setFollowNote] = React.useState("");
   const [nextFollowAt, setNextFollowAt] = React.useState("");
+  const [externalContact, setExternalContact] = React.useState<ExternalContactSdkState>(() => {
+    if (!corpId.trim() || !agentId.trim()) {
+      return {
+        kind: "error",
+        message:
+          "未配置 NEXT_PUBLIC_WECOM_CORP_ID 或 NEXT_PUBLIC_WECOM_AGENT_ID；后端需配置 WECOM_CORP_ID、WECOM_CORP_SECRET。",
+      };
+    }
+    return { kind: "loading" };
+  });
+  const [wecomClientHint, setWecomClientHint] = React.useState(false);
+
+  React.useEffect(() => {
+    setWecomClientHint(!wecomEnv.isWeCom);
+  }, []);
+
+  React.useEffect(() => {
+    if (!corpId.trim() || !agentId.trim()) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        register({
+          corpId: corpId.trim(),
+          agentId: Number(agentId.trim()),
+          jsApiList: ["getCurExternalContact"],
+          getConfigSignature: async (url) => {
+            const r = await fetch(
+              `/api/wecom/jssdk/corp-signature?url=${encodeURIComponent(url)}`,
+            );
+            if (!r.ok) {
+              const detail = await r.json().catch(() => ({}));
+              throw new Error(
+                typeof detail === "object" && detail && "detail" in detail
+                  ? String((detail as { detail?: string }).detail)
+                  : await r.text(),
+              );
+            }
+            return r.json() as Promise<{ timestamp: number | string; nonceStr: string; signature: string }>;
+          },
+          getAgentConfigSignature: async (url) => {
+            const r = await fetch(
+              `/api/wecom/jssdk/agent-signature?url=${encodeURIComponent(url)}`,
+            );
+            if (!r.ok) {
+              const detail = await r.json().catch(() => ({}));
+              throw new Error(
+                typeof detail === "object" && detail && "detail" in detail
+                  ? String((detail as { detail?: string }).detail)
+                  : await r.text(),
+              );
+            }
+            return r.json() as Promise<{ timestamp: number | string; nonceStr: string; signature: string }>;
+          },
+        });
+        const res = await getCurExternalContact();
+        if (cancelled) return;
+        if (res.errMsg === "getCurExternalContact:ok") {
+          setExternalContact({ kind: "success", userId: res.userId });
+        } else {
+          setExternalContact({ kind: "error", message: res.errMsg });
+        }
+      } catch (e) {
+        if (cancelled) return;
+        setExternalContact({
+          kind: "error",
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [corpId, agentId]);
 
   if (!lead) return null;
 
@@ -38,6 +122,43 @@ export function WecomCustomerProfileClient({
 
   return (
     <div className="mx-auto w-full max-w-md space-y-4 pb-6">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">外部联系人 userId</CardTitle>
+          <p className="text-sm font-normal text-muted-foreground">
+            接口{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-xs">ww.getCurExternalContact</code>{" "}
+            （
+            <a
+              className="underline underline-offset-2"
+              href="https://developer.work.weixin.qq.com/document/path/100746"
+              target="_blank"
+              rel="noreferrer"
+            >
+              文档 100746
+            </a>
+            ）。返回值为当前外部联系人 userId；须使用应用身份完成{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-xs">ww.register</code>，且入口需为客户详情或外部单聊工具栏等支持场景。
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {wecomClientHint ? (
+            <p className="text-sm text-amber-600 dark:text-amber-500">
+              当前不在企业微信内置浏览器中，该接口通常无法返回客户 ID；请在企业微信内从客户会话工具栏等入口打开本页验证。
+            </p>
+          ) : null}
+          {externalContact.kind === "loading" ? (
+            <Skeleton className="h-8 w-full max-w-sm" />
+          ) : null}
+          {externalContact.kind === "success" ? (
+            <p className="break-all font-mono text-sm leading-relaxed">{externalContact.userId}</p>
+          ) : null}
+          {externalContact.kind === "error" ? (
+            <p className="text-sm text-destructive">{externalContact.message}</p>
+          ) : null}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardContent className="pt-5">
           <div className="flex items-start gap-3">
