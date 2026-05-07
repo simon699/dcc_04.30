@@ -25,6 +25,7 @@ import {
   taskStatusLabel,
 } from "@/lib/mock-data";
 import { LeadDrawerPanel } from "@/components/leads/lead-drawer-panel";
+import { TaskDetailPanel } from "@/components/tasks/task-detail-panel";
 import { useUiStore } from "@/lib/store/ui-store";
 import { cn } from "@/lib/utils";
 import { WecomCustomerProfileClient } from "@/app/(dashboard)/wecom/customer-profile/wecom-customer-profile-client";
@@ -35,8 +36,12 @@ export function DetailDrawer() {
   const closeDrawer = useUiStore((s) => s.closeDrawer);
   const openDrawer = useUiStore((s) => s.openDrawer);
 
+  const isApiTask =
+    drawerPayload?.type === "task" &&
+    Boolean(drawerPayload.id && /^\d+$/.test(drawerPayload.id));
+
   const task =
-    drawerPayload?.type === "task" ? getTask(drawerPayload.id) : undefined;
+    drawerPayload?.type === "task" && !isApiTask ? getTask(drawerPayload.id) : undefined;
   const isWecomProfileDrawer = drawerPayload?.type === "wecom_profile";
   const isWecomImageDrawer = drawerPayload?.type === "wecom_image";
   const drawerWidthClass = isWecomProfileDrawer
@@ -68,6 +73,8 @@ export function DetailDrawer() {
   const title =
     drawerPayload?.type === "lead"
       ? "线索详情"
+      : isApiTask
+        ? "任务详情"
       : drawerPayload?.type === "wecom_profile"
         ? "客户画像"
       : drawerPayload?.type === "wecom_image"
@@ -136,7 +143,14 @@ export function DetailDrawer() {
             <LeadDrawerPanel leadId={leadId} />
           ) : null}
 
-          {drawerPayload?.type === "task" && (task || isPhoneGroupTask) ? (
+          {isApiTask && drawerPayload?.type === "task" ? (
+            <TaskDetailPanel
+              taskId={drawerPayload.id}
+              highlightTargetId={drawerPayload.apiTargetId}
+            />
+          ) : null}
+
+          {drawerPayload?.type === "task" && !isApiTask && (task || isPhoneGroupTask) ? (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge

@@ -1,11 +1,33 @@
 "use client";
 
 import * as React from "react";
-import { ChevronLeft, ChevronRight, Save } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
+import {
+  CreateLeadSheet,
+  type CreateLeadPrefill,
+} from "@/components/leads/create-lead-sheet";
+import {
+  CreateWecomTaskSheet,
+  type CreateWecomTaskPrefill,
+} from "@/components/tasks/create-wecom-task-sheet";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -16,7 +38,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { CreateLeadSheet, type CreateLeadPrefill } from "@/components/leads/create-lead-sheet";
 import { formatHttpApiDetail } from "@/lib/utils";
 
 const DEFAULT_FOLLOW_USERID = "ShiFengwei";
@@ -49,6 +70,11 @@ function displayName(row: CustomerRow): string {
   return row.remark?.trim() || row.name?.trim() || row.external_userid;
 }
 
+function displayPhonePreview(p: string | null | undefined): string {
+  const t = (p ?? "").trim();
+  return t || "—";
+}
+
 export default function CustomersPage() {
   const [followUserid, setFollowUserid] = React.useState(DEFAULT_FOLLOW_USERID);
   const [draftFollowUserid, setDraftFollowUserid] = React.useState(DEFAULT_FOLLOW_USERID);
@@ -56,9 +82,13 @@ export default function CustomersPage() {
   const pageSize = 15;
   const [loading, setLoading] = React.useState(true);
   const [data, setData] = React.useState<ListResponse | null>(null);
-  const [phones, setPhones] = React.useState<Record<number, string>>({});
   const [createLeadOpen, setCreateLeadOpen] = React.useState(false);
   const [createLeadPrefill, setCreateLeadPrefill] = React.useState<CreateLeadPrefill>({});
+  const [taskSheetOpen, setTaskSheetOpen] = React.useState(false);
+  const [taskPrefill, setTaskPrefill] = React.useState<CreateWecomTaskPrefill>({});
+
+  const [editRow, setEditRow] = React.useState<CustomerRow | null>(null);
+  const [editPhone, setEditPhone] = React.useState("");
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -80,17 +110,6 @@ export default function CustomersPage() {
       }
       const list = json as ListResponse;
       setData(list);
-      const nextPhones: Record<number, string> = {};
-      for (const row of list.items) {
-        nextPhones[row.id] = row.phone ?? "";
-      }
-      setPhones((prev) => {
-        const merged = { ...prev };
-        for (const row of list.items) {
-          if (merged[row.id] === undefined) merged[row.id] = row.phone ?? "";
-        }
-        return merged;
-      });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
       setData(null);
@@ -103,16 +122,21 @@ export default function CustomersPage() {
     void load();
   }, [load]);
 
-  async function savePhone(row: CustomerRow) {
-    const val = phones[row.id] ?? "";
+  function openEdit(row: CustomerRow) {
+    setEditRow(row);
+    setEditPhone(row.phone ?? "");
+  }
+
+  async function saveEditPhone() {
+    if (!editRow) return;
     try {
       const r = await fetch("/api/customers/phone", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          follow_userid: row.follow_userid,
-          external_userid: row.external_userid,
-          phone: val.trim() === "" ? "" : val.trim(),
+          follow_userid: editRow.follow_userid,
+          external_userid: editRow.external_userid,
+          phone: editPhone.trim() === "" ? "" : editPhone.trim(),
         }),
       });
       let json: unknown;
@@ -123,6 +147,7 @@ export default function CustomersPage() {
       }
       if (!r.ok) throw new Error(formatHttpApiDetail(json));
       toast.success("手机号已保存");
+      setEditRow(null);
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
@@ -139,7 +164,7 @@ export default function CustomersPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">客户中心</h1>
         <p className="mt-1 text-muted-foreground">
-          展示企业微信同步的客户；手机号可在本地维护（不与企微同步覆盖）。
+          展示企业微信同步的客户；手机号在「编辑」中维护（本地保存，不与企微同步覆盖）。
         </p>
       </div>
 
@@ -173,6 +198,15 @@ export default function CustomersPage() {
           >
             创建线索
           </Button>
+          <Button
+            type="button"
+            onClick={() => {
+              setTaskPrefill({});
+              setTaskSheetOpen(true);
+            }}
+          >
+            创建任务
+          </Button>
         </CardContent>
       </Card>
 
@@ -193,8 +227,8 @@ export default function CustomersPage() {
                     <TableHead>昵称 / 备注</TableHead>
                     <TableHead className="hidden md:table-cell">公司</TableHead>
                     <TableHead className="hidden lg:table-cell">客户 ID</TableHead>
-                    <TableHead className="min-w-[200px]">手机号</TableHead>
-                    <TableHead className="w-[120px] text-right">操作</TableHead>
+                    <TableHead className="hidden sm:table-cell">手机号</TableHead>
+                    <TableHead className="w-[200px] text-right">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -223,6 +257,9 @@ export default function CustomersPage() {
                         {row.position ? (
                           <div className="text-xs text-muted-foreground">{row.position}</div>
                         ) : null}
+                        <div className="mt-1 text-xs text-muted-foreground sm:hidden">
+                          手机：{displayPhonePreview(row.phone)}
+                        </div>
                       </TableCell>
                       <TableCell className="hidden max-w-[180px] truncate md:table-cell">
                         {row.corp_full_name || row.corp_name || "—"}
@@ -230,44 +267,55 @@ export default function CustomersPage() {
                       <TableCell className="hidden font-mono text-xs lg:table-cell">
                         {row.external_userid}
                       </TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Input
-                            className="h-9 min-w-[140px] max-w-[200px]"
-                            placeholder="维护手机号"
-                            value={phones[row.id] ?? ""}
-                            onChange={(e) =>
-                              setPhones((p) => ({ ...p, [row.id]: e.target.value }))
-                            }
-                          />
+                      <TableCell className="hidden font-mono text-sm sm:table-cell">
+                        {displayPhonePreview(row.phone)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex flex-wrap justify-end gap-1">
                           <Button
                             type="button"
                             size="sm"
                             variant="outline"
-                            className="shrink-0 gap-1"
-                            onClick={() => void savePhone(row)}
+                            className="gap-1"
+                            onClick={() => openEdit(row)}
                           >
-                            <Save className="size-3.5" />
-                            保存
+                            <Pencil className="size-3.5" />
+                            编辑
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => {
+                              setCreateLeadPrefill({
+                                phone: (row.phone ?? "").trim(),
+                                external_userid: row.external_userid,
+                                customer_name: displayName(row),
+                              });
+                              setCreateLeadOpen(true);
+                            }}
+                          >
+                            创建线索
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => {
+                              const ph = (row.phone ?? "").trim();
+                              setTaskPrefill({
+                                targets: [
+                                  {
+                                    target_external_userid: row.external_userid,
+                                    ...(ph ? { target_phone: ph } : {}),
+                                  },
+                                ],
+                              });
+                              setTaskSheetOpen(true);
+                            }}
+                          >
+                            创建任务
                           </Button>
                         </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => {
-                            setCreateLeadPrefill({
-                              phone: (phones[row.id] ?? row.phone ?? "").trim(),
-                              external_userid: row.external_userid,
-                              customer_name: displayName(row),
-                            });
-                            setCreateLeadOpen(true);
-                          }}
-                        >
-                          创建线索
-                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -306,12 +354,56 @@ export default function CustomersPage() {
         </CardContent>
       </Card>
 
+      <Dialog open={editRow !== null} onOpenChange={(o) => !o && setEditRow(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>编辑客户</DialogTitle>
+            <DialogDescription>
+              {editRow ? (
+                <>
+                  {displayName(editRow)}
+                  <span className="mt-1 block font-mono text-xs text-muted-foreground">
+                    {editRow.external_userid}
+                  </span>
+                </>
+              ) : null}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <div className="space-y-2">
+              <Label htmlFor="edit-phone">维护手机号</Label>
+              <Input
+                id="edit-phone"
+                value={editPhone}
+                onChange={(e) => setEditPhone(e.target.value)}
+                placeholder="本地保存，可留空"
+                autoComplete="tel"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditRow(null)}>
+              取消
+            </Button>
+            <Button onClick={() => void saveEditPhone()}>保存</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <CreateLeadSheet
         open={createLeadOpen}
         onOpenChange={setCreateLeadOpen}
         prefill={createLeadPrefill}
         onSuccess={() => void load()}
         formId="customers-center"
+      />
+
+      <CreateWecomTaskSheet
+        open={taskSheetOpen}
+        onOpenChange={setTaskSheetOpen}
+        prefill={taskPrefill}
+        onSuccess={() => void load()}
+        formId="customers-task"
       />
     </div>
   );

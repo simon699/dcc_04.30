@@ -27,6 +27,11 @@ import { leadStatusLabel } from "@/lib/mock-data";
 import { useUiStore } from "@/lib/store/ui-store";
 import { cn } from "@/lib/utils";
 
+import {
+  CreateWecomTaskSheet,
+  type CreateWecomTaskPrefill,
+} from "@/components/tasks/create-wecom-task-sheet";
+
 import { ASSIGNABLE_OWNER_USERIDS } from "./lead-drawer-panel";
 import { CreateLeadSheet } from "./create-lead-sheet";
 
@@ -36,6 +41,7 @@ type ModelFilter = "all" | "XC60" | "XC70" | "EM90" | "XC30";
 type ApiLeadRow = {
   id: string;
   phone: string | null;
+  external_userid?: string | null;
   customer_name: string | null;
   created_at: string | null;
   intent_model: string | null;
@@ -100,6 +106,8 @@ export function LeadList() {
   const [listError, setListError] = React.useState<string | null>(null);
 
   const [createOpen, setCreateOpen] = React.useState(false);
+  const [taskSheetOpen, setTaskSheetOpen] = React.useState(false);
+  const [taskPrefill, setTaskPrefill] = React.useState<CreateWecomTaskPrefill>({});
 
   const [assignOpen, setAssignOpen] = React.useState(false);
   const [assignLeadId, setAssignLeadId] = React.useState<string | null>(null);
@@ -232,9 +240,20 @@ export function LeadList() {
             onChange={(e) => setCreatedDate(e.target.value)}
           />
         </div>
-        <Button type="button" className="shrink-0" onClick={() => setCreateOpen(true)}>
-          新建线索
-        </Button>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <Button type="button" variant="outline" onClick={() => setCreateOpen(true)}>
+            新建线索
+          </Button>
+          <Button
+            type="button"
+            onClick={() => {
+              setTaskPrefill({});
+              setTaskSheetOpen(true);
+            }}
+          >
+            创建任务
+          </Button>
+        </div>
       </div>
 
       {listError ? (
@@ -301,16 +320,39 @@ export function LeadList() {
                       </TableCell>
                       <TableCell>{row.owner_userid ?? "—"}</TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openAssign(row.id);
-                          }}
-                        >
-                          分配
-                        </Button>
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const ext = (row.external_userid ?? "").trim();
+                              const ph = (row.phone ?? "").trim();
+                              const one: {
+                                target_external_userid?: string;
+                                target_phone?: string;
+                              } = {};
+                              if (ext) one.target_external_userid = ext;
+                              if (ph) one.target_phone = ph;
+                              setTaskPrefill({
+                                targets: Object.keys(one).length ? [one] : [],
+                              });
+                              setTaskSheetOpen(true);
+                            }}
+                          >
+                            任务
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openAssign(row.id);
+                            }}
+                          >
+                            分配
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -352,6 +394,14 @@ export function LeadList() {
           loadList();
         }}
         formId="leads-list"
+      />
+
+      <CreateWecomTaskSheet
+        open={taskSheetOpen}
+        onOpenChange={setTaskSheetOpen}
+        prefill={taskPrefill}
+        onSuccess={() => loadList()}
+        formId="leads-task"
       />
 
       <Dialog open={assignOpen} onOpenChange={setAssignOpen}>

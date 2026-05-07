@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Integer, SmallInteger, String, Text, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, SmallInteger, String, Text, func
 from sqlalchemy.dialects.mysql import JSON
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
@@ -93,3 +93,51 @@ class WecomLeadFollow(Base):
     next_follow_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
     follow_method: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), server_default=func.now())
+
+
+class WecomTask(Base):
+    """对应 schema_mysql_wecom_task.sql 表 wecom_task。"""
+
+    __tablename__ = "wecom_task"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    task_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    channel: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(512), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mass_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), server_default=func.now())
+    start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    creator_userid: Mapped[str] = mapped_column(String(64), nullable=False, default="ShiFengwei")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
+    deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), server_default=func.now(), onupdate=func.now()
+    )
+
+    targets: Mapped[list["WecomTaskTarget"]] = relationship(
+        back_populates="task",
+        cascade="all, delete-orphan",
+    )
+
+
+class WecomTaskTarget(Base):
+    __tablename__ = "wecom_task_target"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    task_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("wecom_task.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    target_external_userid: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    target_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    remark: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), server_default=func.now())
+
+    task: Mapped["WecomTask"] = relationship(back_populates="targets")

@@ -6,7 +6,11 @@ export type DrawerPayload =
       id: string;
       fromTaskId?: string;
       fromCustomerName?: string;
-      fromCustomerStatus?: "pending" | "done" | "failed";
+      fromCustomerStatus?:
+        | "pending"
+        | "in_progress"
+        | "done"
+        | "failed";
     }
   | {
       type: "task";
@@ -14,7 +18,13 @@ export type DrawerPayload =
       phoneGroupKey?: string;
       currentLeadId?: string;
       currentCustomerName?: string;
-      currentCustomerStatus?: "pending" | "done" | "failed";
+      currentCustomerStatus?:
+        | "pending"
+        | "in_progress"
+        | "done"
+        | "failed";
+      /** 后端任务详情的对象行 id（wecom_task_target.id） */
+      apiTargetId?: string;
     }
   | {
       type: "wecom_profile";

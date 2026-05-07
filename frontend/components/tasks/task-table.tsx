@@ -15,48 +15,78 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  type FollowBucketKey,
-  type Task,
-  MOCK_TASKS,
-  channelLabel,
-  followingLeads,
-  getFollowBucketLabel,
-  getLead,
-  getLeadByName,
-  getLeadNearestOpenTaskDueAt,
-  getWecomTaskPanelDetail,
-  leadHasOverdueTask,
-  leadMatchesContactMode,
-  taskStatusLabel,
-} from "@/lib/mock-data";
 import { useUiStore } from "@/lib/store/ui-store";
 import { cn } from "@/lib/utils";
-type Filter = "all" | "phone" | "wecom";
-type StatusFilter = "all" | "pending" | "done" | "overdue";
 
-const PAGE_SIZE = 6;
-const TASK_CENTER_TASKS = MOCK_TASKS.filter(
-  (t) => t.channel === "phone" || t.channel === "wecom"
-);
+type ChannelTab = "all" | "phone" | "wecom";
 
-type CustomerTaskRow = {
-  rowId: string;
-  task: Task;
-  leadName: string;
-  leadId: string;
-  leadPhone: string;
-  customerName: string;
-  customerStatus: "pending" | "done" | "failed";
+type ApiTaskRow = {
+  row_id: string;
+  task: {
+    id: string;
+    task_type: string;
+    channel: string;
+    name: string;
+    status: string;
+    deadline: string | null;
+    start_at: string | null;
+    completed_at: string | null;
+    creator_userid: string;
+  };
+  target: {
+    id: number;
+    target_external_userid: string | null;
+    target_phone: string | null;
+    status: string;
+  };
 };
 
-function filterTasks(list: Task[], f: Filter): Task[] {
-  if (f === "all") return list;
-  return list.filter((t) => t.channel === f);
+const PAGE_SIZE = 10;
+
+function taskTypeLabel(t: string): string {
+  if (t === "mass_send") return "群发";
+  if (t === "follow_up") return "跟进";
+  return t;
 }
 
-function formatDue(dueAt: string): string {
-  return new Date(dueAt).toLocaleString("zh-CN", {
+function channelLabel(ch: string): string {
+  if (ch === "phone") return "电话";
+  if (ch === "wecom") return "企微";
+  return ch;
+}
+
+function taskStatusLabel(st: string, deadline: string | null): string {
+  if (st === "done" || st === "cancelled") {
+    return st === "done" ? "已完成" : "已取消";
+  }
+  if (deadline) {
+    const d = new Date(deadline);
+    if (!Number.isNaN(d.getTime()) && d.getTime() < Date.now()) {
+      return "已逾期";
+    }
+  }
+  if (st === "in_progress") return "进行中";
+  return "待办";
+}
+
+function targetStatusLabel(s: string): string {
+  switch (s) {
+    case "pending":
+      return "待处理";
+    case "in_progress":
+      return "进行中";
+    case "done":
+      return "已完成";
+    case "failed":
+      return "失败";
+    default:
+      return s;
+  }
+}
+
+function formatDue(v: string | null): string {
+  if (!v) return "—";
+  return new Date(v).toLocaleString("zh-CN", {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -64,368 +94,271 @@ function formatDue(dueAt: string): string {
   });
 }
 
-function customerStatusLabel(status: CustomerTaskRow["customerStatus"]): string {
-  if (status === "done") return "已完成";
-  if (status === "failed") return "发送失败";
-  return "未发送";
-}
-
-function formatDateKey(dateLike: string): string {
-  const d = new Date(dateLike);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function matchKeyword(row: CustomerTaskRow, keyword: string): boolean {
-  const q = keyword.trim().toLowerCase();
-  if (!q) return true;
-  return [row.task.title, row.customerName, row.leadPhone]
-    .join(" ")
-    .toLowerCase()
-    .includes(q);
-}
-
-function matchDueDate(row: CustomerTaskRow, date: string): boolean {
-  if (!date) return true;
-  return formatDateKey(row.task.dueAt) === date;
-}
-
-function matchStatus(row: CustomerTaskRow, status: StatusFilter): boolean {
-  if (status === "all") return true;
-  return row.task.status === status;
-}
-
-function buildCustomerRows(tasks: Task[]): CustomerTaskRow[] {
-  const rows: CustomerTaskRow[] = [];
-  for (const task of tasks) {
-    const lead = getLead(task.leadId);
-    if (!lead) continue;
-
-    if (task.channel === "phone") {
-      rows.push({
-        rowId: `${task.id}-${lead.id}`,
-        task,
-        leadId: lead.id,
-        leadName: lead.name,
-        leadPhone: lead.phone,
-        customerName: lead.name,
-        customerStatus: task.status === "done" ? "done" : "pending",
-      });
-      continue;
-    }
-
-    const detail = getWecomTaskPanelDetail(task);
-    detail.pendingCustomers.forEach((name, idx) => {
-      const leadOfCustomer = getLeadByName(name) ?? lead;
-      rows.push({
-        rowId: `${task.id}-pending-${name}-${idx}`,
-        task,
-        leadId: leadOfCustomer.id,
-        leadName: leadOfCustomer.name,
-        leadPhone: leadOfCustomer.phone,
-        customerName: name,
-        customerStatus: "pending",
-      });
-    });
-    detail.doneCustomers.forEach((name, idx) => {
-      const leadOfCustomer = getLeadByName(name) ?? lead;
-      rows.push({
-        rowId: `${task.id}-done-${name}-${idx}`,
-        task,
-        leadId: leadOfCustomer.id,
-        leadName: leadOfCustomer.name,
-        leadPhone: leadOfCustomer.phone,
-        customerName: name,
-        customerStatus: "done",
-      });
-    });
-    detail.failedCustomers.forEach((name, idx) => {
-      const leadOfCustomer = getLeadByName(name) ?? lead;
-      rows.push({
-        rowId: `${task.id}-failed-${name}-${idx}`,
-        task,
-        leadId: leadOfCustomer.id,
-        leadName: leadOfCustomer.name,
-        leadPhone: leadOfCustomer.phone,
-        customerName: name,
-        customerStatus: "failed",
-      });
-    });
-  }
-  return rows;
-}
-
-function buildPhoneGroupRows(): CustomerTaskRow[] {
-  const rows: CustomerTaskRow[] = [];
-  const leads = followingLeads().filter(
-    (l) => l.followBucket && leadMatchesContactMode(l, "phone")
-  );
-  for (const lead of leads) {
-    const bucketKey = lead.followBucket as FollowBucketKey;
-    const pseudoTask: Task = {
-      id: `phone-group-${bucketKey}`,
-      title: getFollowBucketLabel(bucketKey),
-      channel: "phone",
-      status: leadHasOverdueTask(lead.id) ? "overdue" : "pending",
-      dueAt: getLeadNearestOpenTaskDueAt(lead.id),
-      leadId: lead.id,
-      description: "电话跟进分类任务（按工作面板分类聚合）",
-    };
-    rows.push({
-      rowId: `${pseudoTask.id}-${lead.id}`,
-      task: pseudoTask,
-      leadId: lead.id,
-      leadName: lead.name,
-      leadPhone: lead.phone,
-      customerName: lead.name,
-      customerStatus: "pending",
-    });
-  }
-  return rows;
+function displayTarget(row: ApiTaskRow): string {
+  const ext = row.target.target_external_userid?.trim();
+  const ph = row.target.target_phone?.trim();
+  if (ext) return ext;
+  if (ph) return ph;
+  return "—";
 }
 
 export function TaskTable() {
   const openDrawer = useUiStore((s) => s.openDrawer);
-  const [tab, setTab] = React.useState<Filter>("all");
-  const [keyword, setKeyword] = React.useState("");
-  const [dueDate, setDueDate] = React.useState("");
-  const [statusFilter, setStatusFilter] = React.useState<StatusFilter>("all");
-  const [page, setPage] = React.useState(1);
 
-  const rows = React.useMemo(() => {
-    const sourceRows =
-      tab === "phone"
-        ? buildPhoneGroupRows()
-        : tab === "wecom"
-          ? buildCustomerRows(filterTasks(TASK_CENTER_TASKS, "wecom"))
-          : [
-              ...buildPhoneGroupRows(),
-              ...buildCustomerRows(filterTasks(TASK_CENTER_TASKS, "wecom")),
-            ];
-    return sourceRows.filter(
-      (row) =>
-        matchKeyword(row, keyword) &&
-        matchDueDate(row, dueDate) &&
-        matchStatus(row, statusFilter)
-    );
-  }, [tab, keyword, dueDate, statusFilter]);
+  const [tab, setTab] = React.useState<ChannelTab>("all");
+  const [keyword, setKeyword] = React.useState("");
+  const [taskStatus, setTaskStatus] = React.useState("");
+  const [rowStatus, setRowStatus] = React.useState("");
+  const [page, setPage] = React.useState(1);
+  const [items, setItems] = React.useState<ApiTaskRow[]>([]);
+  const [total, setTotal] = React.useState(0);
+  const [loading, setLoading] = React.useState(true);
+  const [err, setErr] = React.useState<string | null>(null);
+
+  const load = React.useCallback(() => {
+    setLoading(true);
+    setErr(null);
+    const q = new URLSearchParams();
+    q.set("page", String(page));
+    q.set("page_size", String(PAGE_SIZE));
+    if (keyword.trim()) q.set("keyword", keyword.trim());
+    if (taskStatus.trim()) q.set("task_status", taskStatus.trim());
+    if (rowStatus.trim()) q.set("row_status", rowStatus.trim());
+    if (tab === "phone") q.set("channel", "phone");
+    if (tab === "wecom") q.set("channel", "wecom");
+
+    fetch(`/api/task-rows?${q.toString()}`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(await r.text());
+        return r.json() as Promise<{
+          items: ApiTaskRow[];
+          total: number;
+          total_pages: number;
+        }>;
+      })
+      .then((d) => {
+        setItems(d.items ?? []);
+        setTotal(d.total ?? 0);
+      })
+      .catch((e: Error) => {
+        setItems([]);
+        setTotal(0);
+        setErr(e.message || "加载失败");
+      })
+      .finally(() => setLoading(false));
+  }, [page, keyword, taskStatus, rowStatus, tab]);
+
+  React.useEffect(() => {
+    load();
+  }, [load]);
 
   React.useEffect(() => {
     setPage(1);
-  }, [tab, keyword, dueDate, statusFilter]);
+  }, [keyword, taskStatus, rowStatus, tab]);
 
-  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE) || 1);
   const currentPage = Math.min(page, pageCount);
-  const pagedRows = React.useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE;
-    return rows.slice(start, start + PAGE_SIZE);
-  }, [rows, currentPage]);
+
+  function mapTargetForDrawer(
+    s: string
+  ): "pending" | "in_progress" | "done" | "failed" {
+    if (s === "done") return "done";
+    if (s === "failed") return "failed";
+    if (s === "in_progress") return "in_progress";
+    return "pending";
+  }
 
   return (
     <div className="space-y-4">
       <Tabs
         value={tab}
-        onValueChange={(v) => setTab(v as Filter)}
+        onValueChange={(v) => setTab(v as ChannelTab)}
         className="w-full"
       >
         <TabsList className="h-9 w-full flex-wrap justify-start gap-1 bg-transparent p-0">
           <TabsTrigger value="all" className="data-[state=active]:bg-background">
             全部
           </TabsTrigger>
-          <TabsTrigger
-            value="phone"
-            className="data-[state=active]:bg-background"
-          >
-            电话跟进
+          <TabsTrigger value="phone" className="data-[state=active]:bg-background">
+            电话
           </TabsTrigger>
-          <TabsTrigger
-            value="wecom"
-            className="data-[state=active]:bg-background"
-          >
-            企微跟进
+          <TabsTrigger value="wecom" className="data-[state=active]:bg-background">
+            企微
           </TabsTrigger>
         </TabsList>
       </Tabs>
 
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid gap-2 sm:grid-cols-4">
         <Input
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
-          placeholder="手机号 / 任务名称 / 客户名称"
-        />
-        <Input
-          type="date"
-          value={dueDate}
-          onChange={(e) => setDueDate(e.target.value)}
+          placeholder="任务名称"
         />
         <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+          value={taskStatus}
+          onChange={(e) => setTaskStatus(e.target.value)}
           className={cn(
             "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs",
             "focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
           )}
-          aria-label="状态筛选"
+          aria-label="任务状态"
         >
-          <option value="all">状态：全部</option>
-          <option value="pending">状态：待办</option>
-          <option value="overdue">状态：已逾期</option>
-          <option value="done">状态：已完成</option>
+          <option value="">任务状态（全部）</option>
+          <option value="pending">待办</option>
+          <option value="in_progress">进行中</option>
+          <option value="done">已完成</option>
+          <option value="cancelled">已取消</option>
+        </select>
+        <select
+          value={rowStatus}
+          onChange={(e) => setRowStatus(e.target.value)}
+          className={cn(
+            "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs",
+            "focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+          )}
+          aria-label="对象状态"
+        >
+          <option value="">对象状态（全部）</option>
+          <option value="pending">待处理</option>
+          <option value="in_progress">进行中</option>
+          <option value="done">已完成</option>
+          <option value="failed">失败</option>
         </select>
       </div>
+
+      {err ? <p className="text-sm text-destructive">{err}</p> : null}
 
       <div className="overflow-hidden rounded-lg border bg-card">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="min-w-[220px]">任务</TableHead>
+              <TableHead className="min-w-[180px]">任务</TableHead>
               <TableHead>类型</TableHead>
-              <TableHead>当前客户</TableHead>
-              <TableHead>关联线索</TableHead>
-              <TableHead>状态</TableHead>
+              <TableHead>触达</TableHead>
+              <TableHead>当前对象</TableHead>
+              <TableHead>对象状态</TableHead>
+              <TableHead>任务状态</TableHead>
               <TableHead>截止时间</TableHead>
               <TableHead className="text-right">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {pagedRows.length === 0 ? (
+            {loading ? (
               <TableRow>
-                <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                  暂无匹配任务
+                <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                  加载中…
                 </TableCell>
               </TableRow>
             ) : null}
-            {pagedRows.map((row) => {
-              const task = row.task;
-              return (
-                <TableRow key={row.rowId}>
-                  <TableCell>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const isPhoneGroup = task.id.startsWith("phone-group-");
-                        openDrawer({
-                          type: "task",
-                          id: task.id,
-                          phoneGroupKey: isPhoneGroup
-                            ? task.id.replace("phone-group-", "")
-                            : undefined,
-                          currentLeadId: row.leadId,
-                          currentCustomerName: row.customerName,
-                          currentCustomerStatus: row.customerStatus,
-                        });
-                      }}
-                      className={cn(
-                        "text-left font-medium underline decoration-primary/30 underline-offset-4",
-                        "transition-colors hover:text-primary",
-                        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                      )}
-                    >
-                      {task.title}
-                    </button>
-                    {task.channel === "wecom" ? (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {getWecomTaskPanelDetail(task).tagKind === "followup"
-                          ? "单客户跟进任务"
-                          : `多客户汇总：${getWecomTaskPanelDetail(task).customerTotal} 人`}
-                      </p>
-                    ) : task.id.startsWith("phone-group-") ? (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        电话分类任务：同分类下线索分别跟进
-                      </p>
-                    ) : null}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="font-normal">
-                      {channelLabel(task.channel)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    <span>{row.customerName}</span>
-                    {task.channel === "wecom" ? (
-                      <span className="ml-2 text-xs">
-                        ({customerStatusLabel(row.customerStatus)})
-                      </span>
-                    ) : null}
-                  </TableCell>
-                  <TableCell>
-                    {row.leadName ? (
-                      <button
-                        type="button"
-                        onClick={() => openDrawer({ type: "lead", id: row.leadId })}
-                        className={cn(
-                          "text-muted-foreground underline decoration-muted-foreground/40 underline-offset-4",
-                          "transition-colors hover:text-foreground",
-                          "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                        )}
-                      >
-                        {row.leadName}
-                      </button>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={
-                        task.status === "overdue" ? "destructive" : "secondary"
-                      }
-                      className="font-normal"
-                    >
-                      {taskStatusLabel(task.status)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-muted-foreground text-sm">
-                    {formatDue(task.dueAt)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      {task.channel === "wecom" ? (
-                        <Button
-                          size="sm"
-                          variant="default"
-                          className="gap-1"
+            {!loading && items.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                  暂无任务数据（请确认已执行 MySQL 建表并配置 MYSQL_URL）
+                </TableCell>
+              </TableRow>
+            ) : null}
+            {!loading
+              ? items.map((row) => {
+                  const t = row.task;
+                  const tg = row.target;
+                  const phone =
+                    row.target.target_phone?.replace(/\s/g, "") ?? "";
+                  return (
+                    <TableRow key={row.row_id}>
+                      <TableCell>
+                        <button
+                          type="button"
                           onClick={() =>
                             openDrawer({
-                              type: "wecom_image",
-                              leadId: row.leadId,
+                              type: "task",
+                              id: t.id,
+                              apiTargetId: String(tg.id),
+                              currentCustomerName: displayTarget(row),
+                              currentCustomerStatus: mapTargetForDrawer(tg.status),
                             })
                           }
-                          aria-label="企微跟进"
+                          className={cn(
+                            "text-left font-medium underline decoration-primary/30 underline-offset-4",
+                            "transition-colors hover:text-primary",
+                            "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                          )}
                         >
-                          <MessageCircle className="size-3.5" />
-                          企微
-                        </Button>
-                      ) : null}
-                      {task.channel === "phone" ? (
-                        <a
-                          href={`tel:${row.leadPhone.replace(/\s/g, "")}`}
-                          className={cn(buttonVariants({ size: "sm" }), "gap-1")}
-                          aria-label="拨打电话"
+                          {t.name}
+                        </button>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="font-normal">
+                          {taskTypeLabel(t.task_type)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className="font-normal">
+                          {channelLabel(t.channel)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[200px] truncate font-mono text-xs text-muted-foreground">
+                        {displayTarget(row)}
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-sm">{targetStatusLabel(tg.status)}</span>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={
+                            taskStatusLabel(t.status, t.deadline) === "已逾期"
+                              ? "destructive"
+                              : "secondary"
+                          }
+                          className="font-normal"
                         >
-                          <Phone className="size-3.5" />
-                          电话
-                        </a>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
+                          {taskStatusLabel(t.status, t.deadline)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-muted-foreground text-sm">
+                        {formatDue(t.deadline)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          {t.channel === "wecom" ? (
+                            <Button
+                              size="sm"
+                              variant="default"
+                              className="gap-1"
+                              onClick={() => openDrawer({ type: "wecom_image" })}
+                              aria-label="企微演示"
+                            >
+                              <MessageCircle className="size-3.5" />
+                              企微
+                            </Button>
+                          ) : null}
+                          {t.channel === "phone" && phone ? (
+                            <a
+                              href={`tel:${phone}`}
+                              className={cn(buttonVariants({ size: "sm" }), "gap-1")}
+                            >
+                              <Phone className="size-3.5" />
+                              电话
+                            </a>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              : null}
           </TableBody>
         </Table>
       </div>
+
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
         <span>
-          共 {rows.length} 条 · 第 {currentPage}/{pageCount} 页
+          共 {total} 条 · 第 {currentPage}/{pageCount} 页
         </span>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
             size="sm"
-            disabled={currentPage <= 1}
+            disabled={currentPage <= 1 || loading}
             onClick={() => setPage((p) => Math.max(1, p - 1))}
           >
             上一页
@@ -433,7 +366,7 @@ export function TaskTable() {
           <Button
             variant="outline"
             size="sm"
-            disabled={currentPage >= pageCount}
+            disabled={currentPage >= pageCount || loading}
             onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
           >
             下一页
@@ -441,7 +374,7 @@ export function TaskTable() {
         </div>
       </div>
       <p className="text-center text-xs text-muted-foreground">
-        企微任务按客户展开为多条记录；点击任务名称查看汇总任务详情。
+        数据来自后台 wecom_task / wecom_task_target；按任务对象展开展示。
       </p>
     </div>
   );
