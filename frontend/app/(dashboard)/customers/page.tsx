@@ -307,6 +307,7 @@ export default function CustomersPage() {
                                 phone: (row.phone ?? "").trim(),
                                 external_userid: row.external_userid,
                                 customer_name: displayName(row),
+                                follow_userid: row.follow_userid,
                               });
                               setCreateLeadOpen(true);
                             }}
@@ -413,6 +414,7 @@ export default function CustomersPage() {
         prefill={createLeadPrefill}
         onSuccess={() => void load()}
         formId="customers-center"
+        customerFollowUserid={followUserid}
       />
 
       <CreateWecomTaskSheet
@@ -421,6 +423,7 @@ export default function CustomersPage() {
         prefill={taskPrefill}
         onSuccess={() => void load()}
         formId="customers-task"
+        customerFollowUserid={followUserid}
       />
     </div>
   );

@@ -168,7 +168,6 @@ export function WecomCustomerProfileClient({
     }
     return { kind: "loading" };
   });
-  const wecomClientHint = !wecomEnv.isWeCom;
 
   const [profile, setProfile] = React.useState<CustomerProfileApi | null>(null);
   const [profileErr, setProfileErr] = React.useState<string | null>(null);
@@ -369,33 +368,25 @@ export function WecomCustomerProfileClient({
 
   return (
     <div className="mx-auto w-full max-w-md space-y-4 pb-6">
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">外部联系人</CardTitle>
-          <p className="text-sm font-normal text-muted-foreground">
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">getCurExternalContact</code>
-            返回当前会话外部联系人 ID；须在企业微信内从支持的入口打开。
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {wecomClientHint ? (
-            <p className="text-sm text-amber-600 dark:text-amber-500">
-              当前不在企业微信内置浏览器中，该接口通常无法返回客户 ID。
-            </p>
-          ) : null}
-          {externalContact.kind === "loading" ? (
-            <Skeleton className="h-8 w-full max-w-sm" />
-          ) : null}
-          {externalContact.kind === "success" ? (
-            <p className="break-all font-mono text-sm leading-relaxed">{externalContact.userId}</p>
-          ) : null}
-          {externalContact.kind === "error" ? (
+      {externalContact.kind === "loading" ? (
+        <Card>
+          <CardContent className="py-8">
+            <Skeleton className="h-8 w-40" />
+            <Skeleton className="mt-3 h-4 w-full" />
+            <Skeleton className="mt-2 h-4 w-3/4" />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {externalContact.kind === "error" ? (
+        <Card>
+          <CardContent className="py-6">
             <p className="whitespace-pre-line text-sm text-destructive leading-relaxed">
               {externalContact.message}
             </p>
-          ) : null}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {externalContact.kind === "success" ? (
         <Card>

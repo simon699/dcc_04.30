@@ -13,7 +13,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { cn } from "@/lib/utils";
+import { fetchCustomerOptions, type CustomerOption } from "@/lib/customer-options";
+import { asTrimmedString, cn, formatHttpApiDetail } from "@/lib/utils";
 
 import { DEFAULT_LEAD_OWNER_USERID } from "./lead-drawer-panel";
 
@@ -21,16 +22,18 @@ export type CreateLeadPrefill = {
   phone?: string;
   external_userid?: string;
   customer_name?: string;
+  /** 拉取客户下拉的跟进成员 */
+  follow_userid?: string;
 };
 
 type CreateLeadSheetProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** 打开时用于预填（如客户中心行内创建） */
   prefill?: CreateLeadPrefill;
   onSuccess?: () => void;
-  /** 若提供，用于区分页内多实例的表单 id，避免 label 重复 */
   formId?: string;
+  /** 客户列表对应的跟进成员（与线索/任务中心筛选一致） */
+  customerFollowUserid?: string;
 };
 
 function hasPhoneOrExternal(phone: string, externalUserid: string): boolean {
@@ -43,9 +46,10 @@ export function CreateLeadSheet({
   prefill = {},
   onSuccess,
   formId = "create-lead",
+  customerFollowUserid = "ShiFengwei",
 }: CreateLeadSheetProps) {
   const [phone, setPhone] = React.useState("");
-  const [externalUserid, setExternalUserid] = React.useState("");
+  const [selectedExternalId, setSelectedExternalId] = React.useState("");
   const [customerName, setCustomerName] = React.useState("");
   const [intentModel, setIntentModel] = React.useState("");
   const [level, setLevel] = React.useState<
@@ -53,48 +57,106 @@ export function CreateLeadSheet({
   >("B级");
   const [submitting, setSubmitting] = React.useState(false);
 
+  const [options, setOptions] = React.useState<CustomerOption[]>([]);
+  const [loadingOptions, setLoadingOptions] = React.useState(false);
+
   React.useEffect(() => {
     if (!open) return;
-    setPhone((prefill.phone ?? "").trim());
-    setExternalUserid((prefill.external_userid ?? "").trim());
-    setCustomerName((prefill.customer_name ?? "").trim());
-    setIntentModel("");
-    setLevel("B级");
-  }, [open, prefill.phone, prefill.external_userid, prefill.customer_name]);
+    let cancelled = false;
+    const fu =
+      asTrimmedString(prefill.follow_userid) ||
+      asTrimmedString(customerFollowUserid) ||
+      "ShiFengwei";
+
+    /* eslint-disable react-hooks/set-state-in-effect -- 打开 sheet 时拉取客户选项 */
+    setLoadingOptions(true);
+    fetchCustomerOptions(fu)
+      .then((opts) => {
+        if (cancelled) return;
+        setOptions(opts);
+        const ext = asTrimmedString(prefill.external_userid);
+        if (ext && opts.some((o) => o.external_userid === ext)) {
+          setSelectedExternalId(ext);
+          const row = opts.find((o) => o.external_userid === ext);
+          if (row) {
+            setPhone(asTrimmedString(row.phone));
+            setCustomerName(row.label);
+          }
+        } else {
+          setSelectedExternalId("");
+          setPhone(asTrimmedString(prefill.phone));
+          setCustomerName(asTrimmedString(prefill.customer_name));
+        }
+        setIntentModel("");
+        setLevel("B级");
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) {
+          toast.error(e instanceof Error ? e.message : String(e));
+          setOptions([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingOptions(false);
+      });
+    /* eslint-enable react-hooks/set-state-in-effect */
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    open,
+    prefill.phone,
+    prefill.external_userid,
+    prefill.customer_name,
+    prefill.follow_userid,
+    customerFollowUserid,
+  ]);
+
+  function onCustomerChange(value: string) {
+    setSelectedExternalId(value);
+    if (!value) return;
+    const row = options.find((o) => o.external_userid === value);
+    if (row) {
+      setPhone(asTrimmedString(row.phone));
+      setCustomerName(row.label);
+    }
+  }
 
   const id = (n: string) => `${formId}-${n}`;
 
-  function submit() {
-    if (!hasPhoneOrExternal(phone, externalUserid)) return;
+  async function submit() {
+    if (!hasPhoneOrExternal(phone, selectedExternalId)) return;
     setSubmitting(true);
-    fetch("/api/leads", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        phone: phone.trim(),
-        external_userid: externalUserid.trim() || null,
-        customer_name: customerName.trim(),
-        intent_model: intentModel.trim() || null,
-        customer_level: level,
-        owner_userid: DEFAULT_LEAD_OWNER_USERID,
-      }),
-    })
-      .then(async (r) => {
-        if (!r.ok) {
-          const t = await r.text();
-          throw new Error(t || r.statusText);
-        }
-        return r.json();
-      })
-      .then(() => {
-        toast.success("线索已创建");
-        onOpenChange(false);
-        onSuccess?.();
-      })
-      .catch((e: Error) => {
-        toast.error(e.message || "创建失败");
-      })
-      .finally(() => setSubmitting(false));
+    try {
+      const r = await fetch("/api/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: phone.trim(),
+          external_userid: selectedExternalId.trim() || null,
+          customer_name: customerName.trim(),
+          intent_model: intentModel.trim() || null,
+          customer_level: level,
+          owner_userid: DEFAULT_LEAD_OWNER_USERID,
+        }),
+      });
+      const text = await r.text();
+      let detail = text;
+      try {
+        if (text) detail = formatHttpApiDetail(JSON.parse(text) as unknown);
+      } catch {
+        /* keep text */
+      }
+      if (!r.ok) throw new Error(detail || r.statusText);
+      toast.success("线索已创建");
+      onOpenChange(false);
+      onSuccess?.();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -103,29 +165,46 @@ export function CreateLeadSheet({
         <SheetHeader>
           <SheetTitle>新建线索</SheetTitle>
           <SheetDescription>
-            手机号与「客户 ID（external_userid）」至少填一项。默认归属人：
+            选择企微客户后将带出手机号与称呼；也可不选客户、仅填手机号。每个企微外部联系人仅允许一条线索。默认归属人：
             {DEFAULT_LEAD_OWNER_USERID}
           </SheetDescription>
         </SheetHeader>
         <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1">
+          <div className="space-y-2">
+            <Label htmlFor={id("customer")}>客户</Label>
+            <select
+              id={id("customer")}
+              value={selectedExternalId}
+              disabled={loadingOptions}
+              onChange={(e) => onCustomerChange(e.target.value)}
+              className={cn(
+                "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs",
+                "focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
+                loadingOptions && "opacity-60"
+              )}
+            >
+              <option value="">
+                {loadingOptions ? "加载客户列表…" : "不选客户（仅填下方手机号）"}
+              </option>
+              {options.map((o) => (
+                <option key={o.external_userid} value={o.external_userid}>
+                  {o.label}
+                  {o.phone ? ` · ${o.phone}` : ""}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              列表来自当前跟进成员下的企微客户（{asTrimmedString(prefill.follow_userid) || asTrimmedString(customerFollowUserid) || "ShiFengwei"}）。
+            </p>
+          </div>
           <div className="space-y-2">
             <Label htmlFor={id("phone")}>手机号</Label>
             <Input
               id={id("phone")}
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              placeholder="与 external_userid 二选一或都填"
+              placeholder="可与「客户」配合或单独填写"
               autoComplete="tel"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor={id("ext")}>客户 ID（external_userid）</Label>
-            <Input
-              id={id("ext")}
-              value={externalUserid}
-              onChange={(e) => setExternalUserid(e.target.value)}
-              placeholder="企微外部联系人 ID"
-              className="font-mono text-sm"
             />
           </div>
           <div className="space-y-2">
@@ -180,8 +259,10 @@ export function CreateLeadSheet({
             <Button
               type="button"
               className="flex-1"
-              disabled={!hasPhoneOrExternal(phone, externalUserid) || submitting}
-              onClick={submit}
+              disabled={
+                !hasPhoneOrExternal(phone, selectedExternalId) || submitting || loadingOptions
+              }
+              onClick={() => void submit()}
             >
               {submitting ? "提交中…" : "创建"}
             </Button>

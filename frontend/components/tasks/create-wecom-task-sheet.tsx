@@ -14,7 +14,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { cn } from "@/lib/utils";
+import { fetchCustomerOptions, type CustomerOption } from "@/lib/customer-options";
+import { asTrimmedString, cn, formatHttpApiDetail } from "@/lib/utils";
 
 const DEFAULT_CREATOR = "ShiFengwei";
 
@@ -27,42 +28,16 @@ export type CreateWecomTaskPrefill = {
   targets?: TaskTargetPrefill[];
 };
 
-function formatIsoLocal(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-/** 每行一个：external_userid 或手机号 */
-function parseTargetsBlock(text: string): TaskTargetPrefill[] {
-  const lines = text
-    .split(/[\n,，;；]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const out: TaskTargetPrefill[] = [];
-  for (const line of lines) {
-    const phoneLike = /^\+?\d{5,20}$/.test(line.replace(/\s/g, ""));
-    if (phoneLike && line.replace(/\D/g, "").length >= 5) {
-      out.push({ target_phone: line.replace(/\s/g, "") });
-    } else {
-      out.push({ target_external_userid: line });
-    }
-  }
-  return out;
-}
-
-function targetsToBlock(targets: TaskTargetPrefill[]): string {
-  return targets
-    .map((t) => t.target_external_userid?.trim() || t.target_phone?.trim() || "")
-    .filter(Boolean)
-    .join("\n");
-}
-
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   prefill?: CreateWecomTaskPrefill;
   onSuccess?: () => void;
   formId?: string;
+  /** 任务对象客户列表的跟进成员 */
+  customerFollowUserid?: string;
+  /** 打开表单时的默认触达方式（任务中心 Tab：电话→phone，全部/企微→wecom） */
+  defaultChannel?: "phone" | "wecom";
 };
 
 export function CreateWecomTaskSheet({
@@ -71,6 +46,8 @@ export function CreateWecomTaskSheet({
   prefill,
   onSuccess,
   formId = "create-wecom-task",
+  customerFollowUserid = "ShiFengwei",
+  defaultChannel,
 }: Props) {
   const [taskType, setTaskType] = React.useState<"mass_send" | "follow_up">(
     "follow_up"
@@ -79,38 +56,91 @@ export function CreateWecomTaskSheet({
   const [name, setName] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [massContent, setMassContent] = React.useState("");
-  const [targetsBlock, setTargetsBlock] = React.useState("");
   const [startAt, setStartAt] = React.useState("");
   const [deadline, setDeadline] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
 
+  const [options, setOptions] = React.useState<CustomerOption[]>([]);
+  const [loadingOptions, setLoadingOptions] = React.useState(false);
+  const [selectedIds, setSelectedIds] = React.useState<string[]>([]);
+  const [filterQuery, setFilterQuery] = React.useState("");
+
   React.useEffect(() => {
     if (!open) return;
-    const pf = prefill?.targets?.length
-      ? targetsToBlock(prefill.targets)
-      : "";
-    setTargetsBlock(pf);
-    setName("");
-    setDescription("");
-    setMassContent("");
-    setTaskType("follow_up");
-    setChannel("wecom");
-    setStartAt("");
-    setDeadline("");
-  }, [open, prefill]);
+    let cancelled = false;
+    const fu = asTrimmedString(customerFollowUserid) || "ShiFengwei";
+    /* eslint-disable react-hooks/set-state-in-effect -- 打开 sheet 时拉取客户列表 */
+    setLoadingOptions(true);
+    setFilterQuery("");
+    fetchCustomerOptions(fu)
+      .then((opts) => {
+        if (cancelled) return;
+        setOptions(opts);
+        const want =
+          prefill?.targets
+            ?.map((t) => asTrimmedString(t.target_external_userid))
+            .filter(Boolean) ?? [];
+        const ok = want.filter((id) => opts.some((o) => o.external_userid === id));
+        setSelectedIds(ok);
+        setName("");
+        setDescription("");
+        setMassContent("");
+        setTaskType("follow_up");
+        setChannel(defaultChannel ?? "wecom");
+        setStartAt("");
+        setDeadline("");
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) {
+          toast.error(e instanceof Error ? e.message : String(e));
+          setOptions([]);
+          setSelectedIds([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingOptions(false);
+      });
+    /* eslint-enable react-hooks/set-state-in-effect */
+    return () => {
+      cancelled = true;
+    };
+  }, [open, prefill, customerFollowUserid, defaultChannel]);
+
+  function toggleId(id: string) {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+
+  const filteredOptions = React.useMemo(() => {
+    const q = filterQuery.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter((o) => {
+      const blob = `${o.label} ${o.external_userid} ${o.phone ?? ""}`.toLowerCase();
+      return blob.includes(q);
+    });
+  }, [options, filterQuery]);
 
   const id = (s: string) => `${formId}-${s}`;
 
-  function submit() {
-    const parsed = parseTargetsBlock(targetsBlock);
+  async function submit() {
     if (!name.trim()) {
       toast.error("请填写任务名称");
       return;
     }
-    if (parsed.length === 0) {
-      toast.error("请填写至少一个任务对象（external_userid 或手机号）");
+    if (selectedIds.length === 0) {
+      toast.error("请至少选择一个客户作为任务对象");
       return;
     }
+
+    const targets = selectedIds.map((ext) => {
+      const o = options.find((x) => x.external_userid === ext);
+      const ph = o?.phone ? asTrimmedString(o.phone).replace(/\s/g, "") : "";
+      return {
+        target_external_userid: ext,
+        target_phone: ph || null,
+      };
+    });
 
     const body: Record<string, unknown> = {
       task_type: taskType,
@@ -119,31 +149,34 @@ export function CreateWecomTaskSheet({
       description: description.trim() || null,
       mass_content: taskType === "mass_send" ? massContent.trim() || null : null,
       creator_userid: DEFAULT_CREATOR,
-      targets: parsed.map((t) => ({
-        target_external_userid: t.target_external_userid ?? null,
-        target_phone: t.target_phone ?? null,
-      })),
+      targets,
     };
     if (startAt.trim()) body.start_at = new Date(startAt).toISOString();
     if (deadline.trim()) body.deadline = new Date(deadline).toISOString();
 
     setSubmitting(true);
-    fetch("/api/tasks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    })
-      .then(async (r) => {
-        if (!r.ok) throw new Error(await r.text());
-        return r.json();
-      })
-      .then(() => {
-        toast.success("任务已创建");
-        onOpenChange(false);
-        onSuccess?.();
-      })
-      .catch((e: Error) => toast.error(e.message || "创建失败"))
-      .finally(() => setSubmitting(false));
+    try {
+      const r = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const text = await r.text();
+      let detail = text;
+      try {
+        if (text) detail = formatHttpApiDetail(JSON.parse(text) as unknown);
+      } catch {
+        /* keep text */
+      }
+      if (!r.ok) throw new Error(detail || r.statusText);
+      toast.success("任务已创建");
+      onOpenChange(false);
+      onSuccess?.();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -152,7 +185,8 @@ export function CreateWecomTaskSheet({
         <SheetHeader>
           <SheetTitle>新建任务</SheetTitle>
           <SheetDescription>
-            创建人默认：{DEFAULT_CREATOR}；任务对象支持多个 external_userid 或手机号（每行一条）。
+            创建人默认：{DEFAULT_CREATOR}；任务对象从客户列表多选（跟进成员：
+            {asTrimmedString(customerFollowUserid) || "ShiFengwei"}）。
           </SheetDescription>
         </SheetHeader>
 
@@ -227,15 +261,59 @@ export function CreateWecomTaskSheet({
           ) : null}
 
           <div className="space-y-2">
-            <Label htmlFor={id("targets")}>任务对象 *</Label>
-            <Textarea
-              id={id("targets")}
-              value={targetsBlock}
-              onChange={(e) => setTargetsBlock(e.target.value)}
-              rows={5}
-              placeholder={"每行一个 external_userid 或手机号\n可从线索/客户页带入"}
-              className="font-mono text-xs"
+            <Label>任务对象 *（多选客户）</Label>
+            <Input
+              id={id("filter")}
+              value={filterQuery}
+              onChange={(e) => setFilterQuery(e.target.value)}
+              placeholder="搜索昵称、手机号或 external_userid"
+              disabled={loadingOptions}
+              className="text-sm"
             />
+            <div
+              className={cn(
+                "max-h-52 overflow-y-auto rounded-md border border-input bg-background px-2 py-2",
+                loadingOptions && "opacity-60"
+              )}
+            >
+              {loadingOptions ? (
+                <p className="px-1 py-3 text-sm text-muted-foreground">加载客户列表…</p>
+              ) : filteredOptions.length === 0 ? (
+                <p className="px-1 py-3 text-sm text-muted-foreground">
+                  {options.length === 0 ? "暂无客户，请先同步企微客户。" : "无匹配客户"}
+                </p>
+              ) : (
+                <ul className="space-y-1">
+                  {filteredOptions.map((o) => {
+                    const checked = selectedIds.includes(o.external_userid);
+                    return (
+                      <li key={o.external_userid}>
+                        <label className="flex cursor-pointer items-start gap-2 rounded px-1 py-1.5 text-sm hover:bg-muted/60">
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={checked}
+                            onChange={() => toggleId(o.external_userid)}
+                          />
+                          <span className="min-w-0 flex-1 leading-snug">
+                            <span className="font-medium">{o.label}</span>
+                            <span className="mt-0.5 block font-mono text-xs text-muted-foreground break-all">
+                              {o.external_userid}
+                            </span>
+                            {o.phone ? (
+                              <span className="text-xs text-muted-foreground">{o.phone}</span>
+                            ) : null}
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              已选 {selectedIds.length} 人
+            </p>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -276,8 +354,8 @@ export function CreateWecomTaskSheet({
             <Button
               type="button"
               className="flex-1"
-              disabled={submitting}
-              onClick={submit}
+              disabled={submitting || loadingOptions}
+              onClick={() => void submit()}
             >
               {submitting ? "提交中…" : "创建"}
             </Button>

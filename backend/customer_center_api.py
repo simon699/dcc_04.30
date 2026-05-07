@@ -98,6 +98,44 @@ def list_customers(
         sess.close()
 
 
+@router.get("/api/customers/options")
+def list_customer_options(
+    follow_userid: str = Query("ShiFengwei", description="跟进成员 userid"),
+    limit: int = Query(500, ge=1, le=2000),
+) -> dict[str, Any]:
+    """下拉框用：精简客户列表（昵称/备注 + external_userid）。"""
+    _require_mysql()
+    fu = follow_userid.strip()
+    sess: Session = get_session()
+    try:
+        stmt = (
+            select(WecomCustomerFollow, WecomExternalCustomer)
+            .outerjoin(
+                WecomExternalCustomer,
+                WecomExternalCustomer.external_userid == WecomCustomerFollow.external_userid,
+            )
+            .where(WecomCustomerFollow.follow_userid == fu)
+            .order_by(WecomCustomerFollow.id.desc())
+            .limit(limit)
+        )
+        rows = sess.execute(stmt).all()
+        items: list[dict[str, Any]] = []
+        for f, e in rows:
+            remark_p = (f.remark or "").strip()
+            name_p = ((e.name if e else None) or "").strip()
+            label = remark_p or name_p or f.external_userid
+            items.append(
+                {
+                    "external_userid": f.external_userid,
+                    "phone": f.phone,
+                    "label": label,
+                }
+            )
+        return {"items": items, "follow_userid": fu}
+    finally:
+        sess.close()
+
+
 class PhoneUpdate(BaseModel):
     follow_userid: str = Field(..., min_length=1)
     external_userid: str = Field(..., min_length=1)

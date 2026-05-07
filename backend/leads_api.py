@@ -214,6 +214,15 @@ def create_lead(body: LeadCreate) -> dict[str, Any]:
         )
     sess = get_session()
     try:
+        if ext_s:
+            dup = sess.scalars(
+                select(WecomLead.id).where(WecomLead.external_userid == ext_s).limit(1)
+            ).first()
+            if dup is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="该企微客户已存在线索，每个外部联系人仅可对应一条线索",
+                )
         owner = (body.owner_userid or DEFAULT_OWNER_USERID).strip() or DEFAULT_OWNER_USERID
         lead = WecomLead(
             phone=phone_s or "",

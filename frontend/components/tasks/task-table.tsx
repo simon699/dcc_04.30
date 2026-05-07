@@ -21,7 +21,15 @@ import { useUiStore } from "@/lib/store/ui-store";
 import { tryOpenWecomExternalUserChat } from "@/lib/wecom-open-chat";
 import { asTrimmedString, cn } from "@/lib/utils";
 
-type ChannelTab = "all" | "phone" | "wecom";
+export type ChannelTab = "all" | "phone" | "wecom";
+
+export type TaskTableProps = {
+  /** 与顶部「全部 / 电话 / 企微」Tab 同步（由页面传入以便创建任务默认触达方式） */
+  channelTab: ChannelTab;
+  onChannelTabChange: (tab: ChannelTab) => void;
+  /** 递增后触发列表重新拉取（如创建任务成功） */
+  refreshNonce?: number;
+};
 
 type ApiTaskRow = {
   row_id: string;
@@ -108,11 +116,15 @@ function displayTarget(row: ApiTaskRow): string {
   return "—";
 }
 
-export function TaskTable() {
+export function TaskTable({
+  channelTab,
+  onChannelTabChange,
+  refreshNonce = 0,
+}: TaskTableProps) {
   const openDrawer = useUiStore((s) => s.openDrawer);
   const [openingChat, setOpeningChat] = React.useState<string | null>(null);
 
-  const [tab, setTab] = React.useState<ChannelTab>("all");
+  const tab = channelTab;
   const [keyword, setKeyword] = React.useState("");
   const [taskStatus, setTaskStatus] = React.useState("");
   const [rowStatus, setRowStatus] = React.useState("");
@@ -156,10 +168,12 @@ export function TaskTable() {
   }, [page, keyword, taskStatus, rowStatus, tab]);
 
   React.useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 列表拉取
     load();
-  }, [load]);
+  }, [load, refreshNonce]);
 
   React.useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 筛选变更回到第一页
     setPage(1);
   }, [keyword, taskStatus, rowStatus, tab]);
 
@@ -179,7 +193,7 @@ export function TaskTable() {
     <div className="space-y-4">
       <Tabs
         value={tab}
-        onValueChange={(v) => setTab(v as ChannelTab)}
+        onValueChange={(v) => onChannelTabChange(v as ChannelTab)}
         className="w-full"
       >
         <TabsList className="h-9 w-full flex-wrap justify-start gap-1 bg-transparent p-0">

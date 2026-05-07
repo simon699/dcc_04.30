@@ -390,6 +390,7 @@ export function CustomerCenterDrawerPanel({ follow_userid, external_userid }: Pr
                   phone: phoneRaw,
                   external_userid: profile.external_userid,
                   customer_name: name,
+                  follow_userid: profile.follow_userid,
                 });
                 setCreateLeadOpen(true);
               }}
@@ -566,6 +567,7 @@ export function CustomerCenterDrawerPanel({ follow_userid, external_userid }: Pr
           void loadProfile();
         }}
         formId="customer-drawer-lead"
+        customerFollowUserid={fu}
       />
       <CreateWecomTaskSheet
         open={taskSheetOpen}
@@ -573,6 +575,7 @@ export function CustomerCenterDrawerPanel({ follow_userid, external_userid }: Pr
         prefill={taskPrefill}
         onSuccess={() => void loadTasks()}
         formId="customer-drawer-task"
+        customerFollowUserid={fu}
       />
     </div>
   );
