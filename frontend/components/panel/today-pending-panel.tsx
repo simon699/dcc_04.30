@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { History, MessageCircle, Phone } from "lucide-react";
 import { toast } from "sonner";
 import { env as wecomEnv } from "@wecom/jssdk";
@@ -42,6 +43,7 @@ type ApiTaskRow = {
     id: number;
     target_external_userid: string | null;
     target_phone: string | null;
+    target_lead_id?: string | null;
     status: string;
   };
   target_display_name?: string;
@@ -364,17 +366,31 @@ export function TodayPendingPanel() {
                         </p>
                         <div className="flex flex-wrap gap-1.5">
                           {ph ? (
-                            <a
-                              href={`tel:${ph}`}
-                              className={cn(
-                                buttonVariants({ size: "sm" }),
-                                "h-8 gap-1"
-                              )}
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <Phone className="size-3.5" />
-                              电话
-                            </a>
+                            tg.target_lead_id ? (
+                              <Link
+                                href={`/leads/${tg.target_lead_id}/edit?entry=phone`}
+                                className={cn(
+                                  buttonVariants({ size: "sm" }),
+                                  "h-8 gap-1"
+                                )}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <Phone className="size-3.5" />
+                                电话
+                              </Link>
+                            ) : (
+                              <a
+                                href={`tel:${ph}`}
+                                className={cn(
+                                  buttonVariants({ size: "sm" }),
+                                  "h-8 gap-1"
+                                )}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <Phone className="size-3.5" />
+                                电话
+                              </a>
+                            )
                           ) : null}
                           {ext ? (
                             <Button

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { Megaphone, MessageCircle, Phone } from "lucide-react";
 import { toast } from "sonner";
 import { env as wecomEnv } from "@wecom/jssdk";
@@ -19,7 +20,10 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useUiStore } from "@/lib/store/ui-store";
 import { copyPlainText } from "@/lib/copy-to-clipboard";
-import { shareMassSendTextToExternalContacts } from "@/lib/wecom-mass-send";
+import {
+  isWeComMacMassSendLimited,
+  shareMassSendTextToExternalContacts,
+} from "@/lib/wecom-mass-send";
 import { tryOpenWecomExternalUserChat } from "@/lib/wecom-open-chat";
 import { asTrimmedString, cn } from "@/lib/utils";
 
@@ -51,6 +55,7 @@ type ApiTaskRow = {
     id: number;
     target_external_userid: string | null;
     target_phone: string | null;
+    target_lead_id?: string | null;
     status: string;
   };
   target_display_name?: string;
@@ -382,13 +387,23 @@ export function TaskTable({
                             </Button>
                           ) : null}
                           {t.channel === "phone" && phone ? (
-                            <a
-                              href={`tel:${phone}`}
-                              className={cn(buttonVariants({ size: "sm" }), "gap-1")}
-                            >
-                              <Phone className="size-3.5" />
-                              电话
-                            </a>
+                            tg.target_lead_id ? (
+                              <Link
+                                href={`/leads/${tg.target_lead_id}/edit?entry=phone`}
+                                className={cn(buttonVariants({ size: "sm" }), "gap-1")}
+                              >
+                                <Phone className="size-3.5" />
+                                电话
+                              </Link>
+                            ) : (
+                              <a
+                                href={`tel:${phone}`}
+                                className={cn(buttonVariants({ size: "sm" }), "gap-1")}
+                              >
+                                <Phone className="size-3.5" />
+                                电话
+                              </a>
+                            )
                           ) : null}
                           {t.task_type === "mass_send" &&
                           (t.mass_content ?? "").trim() ? (
@@ -415,12 +430,15 @@ export function TaskTable({
                                   className="gap-1"
                                   disabled={
                                     massSendRow === row.row_id ||
-                                    !(tg.target_external_userid ?? "").trim()
+                                    !(tg.target_external_userid ?? "").trim() ||
+                                    isWeComMacMassSendLimited()
                                   }
                                   title={
-                                    !(tg.target_external_userid ?? "").trim()
-                                      ? "当前对象缺少 external_userid"
-                                      : "企业微信内调起群发助手（shareToExternalContact）"
+                                    isWeComMacMassSendLimited()
+                                      ? "Mac 端网页无法带入群发内容与客户，请复制后发送"
+                                      : !(tg.target_external_userid ?? "").trim()
+                                        ? "当前对象缺少 external_userid"
+                                        : "企业微信内调起群发助手（shareToExternalContact）"
                                   }
                                   onClick={() => {
                                     void (async () => {

@@ -2,6 +2,7 @@
  * 客户端群发：将文本投递到企业微信「群发助手」（官方 JS-SDK）。
  *
  * @see https://developer.work.weixin.qq.com/document/path/93555 （shareToExternalContact）
+ * @see https://developer.work.weixin.qq.com/document/path/93594 — 文本/附件能力仅 3.1.6+，且 Mac 端暂不支持从网页传入正文；externalUserIds 亦不支持 Mac。
  */
 
 import {
@@ -71,6 +72,38 @@ async function ensureRegisteredForMassSend(): Promise<void> {
 }
 
 /**
+ * 是否在「企业微信内置浏览器 + macOS 桌面」环境。
+ * 官方文档明确：通过网页向群发助手传入 text / externalUserIds 在 Mac 端不可用或受限，
+ * 典型现象为助手内正文与客户为空，关闭后回调 shareToExternalContact:cancel。
+ */
+export function isWeComMacMassSendLimited(): boolean {
+  if (typeof navigator === "undefined" || !wecomEnv.isWeCom) {
+    return false;
+  }
+  const ua = navigator.userAgent || "";
+  if (/iPhone|iPad|iPod|Android/i.test(ua)) {
+    return false;
+  }
+  return /Macintosh|Mac OS X/i.test(ua);
+}
+
+function formatShareToExternalContactError(e: unknown): string {
+  if (e && typeof e === "object") {
+    const o = e as { errMsg?: string; err_msg?: string };
+    const errMsg = (o.errMsg ?? o.err_msg ?? "").trim();
+    if (errMsg) {
+      if (/shareToExternalContact:cancel/i.test(errMsg)) {
+        return (
+          "已关闭群发助手未发送。若在助手内看不到正文或客户，多为客户端版本过低（建议 3.1.6+）或 Mac 端网页侧官方不支持传入内容，请使用「复制内容」后粘贴发送。"
+        );
+      }
+      return errMsg;
+    }
+  }
+  return formatCaughtError(e);
+}
+
+/**
  * 调用企业微信客户端接口，将文本发往群发助手（可选指定客户 external_userid 列表）。
  */
 export async function shareMassSendTextToExternalContacts(params: {
@@ -97,6 +130,14 @@ export async function shareMassSendTextToExternalContacts(params: {
     };
   }
 
+  if (isWeComMacMassSendLimited()) {
+    return {
+      ok: false,
+      message:
+        "Mac 端企业微信网页暂不支持向群发助手传入正文与预选客户（官方文档约 93594）。请使用「复制内容」，在手机端企业微信或 Windows 客户端内再发起群发。",
+    };
+  }
+
   const text = raw.length > 4000 ? raw.slice(0, 4000) : raw;
 
   try {
@@ -110,6 +151,6 @@ export async function shareMassSendTextToExternalContacts(params: {
     }
     return { ok: true };
   } catch (e: unknown) {
-    return { ok: false, message: formatCaughtError(e) };
+    return { ok: false, message: formatShareToExternalContactError(e) };
   }
 }

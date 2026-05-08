@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { type LeadLevelGrade } from "@/lib/mock-data";
+import { formatCnWallClockApi } from "@/lib/datetime-cn";
 import { formatHttpApiDetail } from "@/lib/utils";
 
 dayjs.locale("zh-cn");
@@ -238,7 +239,7 @@ export default function LeadEditPage() {
         remark: note.trim() || null,
         invite_store_at:
           inviteStoreDay?.isValid() ? inviteStoreDay.format("YYYY-MM-DD") : null,
-        next_follow_at: nextFollowAt.format("YYYY-MM-DDTHH:mm:00"),
+        next_follow_at: formatCnWallClockApi(nextFollowAt),
         next_follow_method: nextFollowMethod,
       };
       if (!hasWecomOnLead && linkExternalUserid.trim()) {

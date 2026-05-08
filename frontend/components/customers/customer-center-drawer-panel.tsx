@@ -88,6 +88,7 @@ type ApiTaskRow = {
     status: string;
     target_external_userid: string | null;
     target_phone: string | null;
+    target_lead_id?: string | null;
   };
   target_display_name?: string;
 };

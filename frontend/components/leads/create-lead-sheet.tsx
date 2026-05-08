@@ -1,11 +1,9 @@
 "use client";
 
 import * as React from "react";
+import { Button, Form, Input, Select, Space } from "antd";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Sheet,
   SheetContent,
@@ -14,15 +12,22 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { fetchCustomerOptions, type CustomerOption } from "@/lib/customer-options";
-import { asTrimmedString, cn, formatHttpApiDetail } from "@/lib/utils";
+import { asTrimmedString, formatHttpApiDetail } from "@/lib/utils";
 
 import { DEFAULT_LEAD_OWNER_USERID } from "./lead-drawer-panel";
+
+const LEVEL_OPTIONS = [
+  { value: "H级", label: "H级" },
+  { value: "A级", label: "A级" },
+  { value: "B级", label: "B级" },
+  { value: "C级", label: "C级" },
+  { value: "N级", label: "N级" },
+];
 
 export type CreateLeadPrefill = {
   phone?: string;
   external_userid?: string;
   customer_name?: string;
-  /** 拉取客户下拉的跟进成员 */
   follow_userid?: string;
 };
 
@@ -32,8 +37,15 @@ type CreateLeadSheetProps = {
   prefill?: CreateLeadPrefill;
   onSuccess?: () => void;
   formId?: string;
-  /** 客户列表对应的跟进成员（与线索/任务中心筛选一致） */
   customerFollowUserid?: string;
+};
+
+type FormValues = {
+  external_userid?: string | null;
+  phone: string;
+  customer_name: string;
+  intent_model?: string;
+  customer_level: string;
 };
 
 function hasPhoneOrExternal(phone: string, externalUserid: string): boolean {
@@ -48,17 +60,10 @@ export function CreateLeadSheet({
   formId = "create-lead",
   customerFollowUserid = "ShiFengwei",
 }: CreateLeadSheetProps) {
-  const [phone, setPhone] = React.useState("");
-  const [selectedExternalId, setSelectedExternalId] = React.useState("");
-  const [customerName, setCustomerName] = React.useState("");
-  const [intentModel, setIntentModel] = React.useState("");
-  const [level, setLevel] = React.useState<
-    "H级" | "A级" | "B级" | "C级" | "N级"
-  >("B级");
-  const [submitting, setSubmitting] = React.useState(false);
-
+  const [form] = Form.useForm<FormValues>();
   const [options, setOptions] = React.useState<CustomerOption[]>([]);
   const [loadingOptions, setLoadingOptions] = React.useState(false);
+  const [submitting, setSubmitting] = React.useState(false);
 
   React.useEffect(() => {
     if (!open) return;
@@ -76,19 +81,23 @@ export function CreateLeadSheet({
         setOptions(opts);
         const ext = asTrimmedString(prefill.external_userid);
         if (ext && opts.some((o) => o.external_userid === ext)) {
-          setSelectedExternalId(ext);
           const row = opts.find((o) => o.external_userid === ext);
-          if (row) {
-            setPhone(asTrimmedString(row.phone));
-            setCustomerName(row.label);
-          }
+          form.setFieldsValue({
+            external_userid: ext,
+            phone: row ? asTrimmedString(row.phone) : "",
+            customer_name: row?.label ?? "",
+            intent_model: "",
+            customer_level: "N级",
+          });
         } else {
-          setSelectedExternalId("");
-          setPhone(asTrimmedString(prefill.phone));
-          setCustomerName(asTrimmedString(prefill.customer_name));
+          form.setFieldsValue({
+            external_userid: null,
+            phone: asTrimmedString(prefill.phone),
+            customer_name: asTrimmedString(prefill.customer_name),
+            intent_model: "",
+            customer_level: "N级",
+          });
         }
-        setIntentModel("");
-        setLevel("B级");
       })
       .catch((e: unknown) => {
         if (!cancelled) {
@@ -111,33 +120,42 @@ export function CreateLeadSheet({
     prefill.customer_name,
     prefill.follow_userid,
     customerFollowUserid,
+    form,
   ]);
 
-  function onCustomerChange(value: string) {
-    setSelectedExternalId(value);
-    if (!value) return;
-    const row = options.find((o) => o.external_userid === value);
+  function onCustomerChange(ext: string) {
+    if (!ext) return;
+    const row = options.find((o) => o.external_userid === ext);
     if (row) {
-      setPhone(asTrimmedString(row.phone));
-      setCustomerName(row.label);
+      form.setFieldsValue({
+        phone: asTrimmedString(row.phone),
+        customer_name: row.label,
+      });
     }
   }
 
-  const id = (n: string) => `${formId}-${n}`;
-
   async function submit() {
-    if (!hasPhoneOrExternal(phone, selectedExternalId)) return;
+    let values: FormValues;
+    try {
+      values = await form.validateFields();
+    } catch {
+      return;
+    }
+    const ext = String(values.external_userid ?? "").trim();
+    const phone = (values.phone ?? "").trim();
+    if (!hasPhoneOrExternal(phone, ext)) return;
+
     setSubmitting(true);
     try {
       const r = await fetch("/api/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          phone: phone.trim(),
-          external_userid: selectedExternalId.trim() || null,
-          customer_name: customerName.trim(),
-          intent_model: intentModel.trim() || null,
-          customer_level: level,
+          phone,
+          external_userid: ext || null,
+          customer_name: values.customer_name.trim(),
+          intent_model: values.intent_model?.trim() || null,
+          customer_level: values.customer_level,
           owner_userid: DEFAULT_LEAD_OWNER_USERID,
         }),
       });
@@ -170,103 +188,82 @@ export function CreateLeadSheet({
           </SheetDescription>
         </SheetHeader>
         <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1">
-          <div className="space-y-2">
-            <Label htmlFor={id("customer")}>客户</Label>
-            <select
-              id={id("customer")}
-              value={selectedExternalId}
-              disabled={loadingOptions}
-              onChange={(e) => onCustomerChange(e.target.value)}
-              className={cn(
-                "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs",
-                "focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
-                loadingOptions && "opacity-60"
-              )}
+          <Form<FormValues>
+            id={formId}
+            form={form}
+            layout="vertical"
+            initialValues={{
+              phone: "",
+              customer_name: "",
+              intent_model: "",
+              customer_level: "N级",
+            }}
+          >
+            <Form.Item name="external_userid" label="客户">
+              <Select
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                loading={loadingOptions}
+                disabled={loadingOptions}
+                placeholder={
+                  loadingOptions ? "加载客户列表…" : "不选则仅填下方手机号"
+                }
+                options={options.map((o) => ({
+                  value: o.external_userid,
+                  label: `${o.label}${o.phone ? ` · ${o.phone}` : ""}`,
+                }))}
+                onChange={(v) => {
+                  if (v) onCustomerChange(v);
+                }}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                列表来自当前跟进成员下的企微客户（
+                {asTrimmedString(prefill.follow_userid) ||
+                  asTrimmedString(customerFollowUserid) ||
+                  "ShiFengwei"}
+                ）。
+              </p>
+            </Form.Item>
+
+            <Form.Item name="phone" label="手机号">
+              <Input placeholder="可与「客户」配合或单独填写" autoComplete="tel" />
+            </Form.Item>
+
+            <Form.Item name="customer_name" label="客户姓名">
+              <Input />
+            </Form.Item>
+
+            <Form.Item name="intent_model" label="意向车型">
+              <Input placeholder="可填写如 XC60" />
+            </Form.Item>
+
+            <Form.Item
+              name="customer_level"
+              label="客户等级"
+              rules={[{ required: true, message: "请选择客户等级" }]}
             >
-              <option value="">
-                {loadingOptions ? "加载客户列表…" : "不选客户（仅填下方手机号）"}
-              </option>
-              {options.map((o) => (
-                <option key={o.external_userid} value={o.external_userid}>
-                  {o.label}
-                  {o.phone ? ` · ${o.phone}` : ""}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-muted-foreground">
-              列表来自当前跟进成员下的企微客户（{asTrimmedString(prefill.follow_userid) || asTrimmedString(customerFollowUserid) || "ShiFengwei"}）。
-            </p>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor={id("phone")}>手机号</Label>
-            <Input
-              id={id("phone")}
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="可与「客户」配合或单独填写"
-              autoComplete="tel"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor={id("name")}>客户姓名</Label>
-            <Input
-              id={id("name")}
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor={id("intent")}>意向车型</Label>
-            <Input
-              id={id("intent")}
-              value={intentModel}
-              onChange={(e) => setIntentModel(e.target.value)}
-              placeholder="可填写如 XC60"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>客户等级</Label>
-            <select
-              value={level}
-              onChange={(e) =>
-                setLevel(e.target.value as "H级" | "A级" | "B级" | "C级" | "N级")
-              }
-              className={cn(
-                "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs",
-                "focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
-              )}
-            >
-              <option value="H级">H级</option>
-              <option value="A级">A级</option>
-              <option value="B级">B级</option>
-              <option value="C级">C级</option>
-              <option value="N级">N级</option>
-            </select>
-          </div>
-          <div className="space-y-2">
-            <Label>默认归属人</Label>
-            <Input readOnly value={DEFAULT_LEAD_OWNER_USERID} className="bg-muted/50" />
-          </div>
-          <div className="mt-auto flex gap-2 pt-4">
-            <Button
-              type="button"
-              variant="outline"
-              className="flex-1"
-              onClick={() => onOpenChange(false)}
-            >
+              <Select options={LEVEL_OPTIONS} />
+            </Form.Item>
+
+            <Form.Item label="默认归属人">
+              <Input readOnly value={DEFAULT_LEAD_OWNER_USERID} />
+            </Form.Item>
+          </Form>
+
+          <Space className="mt-auto w-full pt-4">
+            <Button className="flex-1" onClick={() => onOpenChange(false)}>
               取消
             </Button>
             <Button
-              type="button"
+              type="primary"
               className="flex-1"
-              disabled={
-                !hasPhoneOrExternal(phone, selectedExternalId) || submitting || loadingOptions
-              }
+              loading={submitting || loadingOptions}
               onClick={() => void submit()}
             >
-              {submitting ? "提交中…" : "创建"}
+              创建
             </Button>
-          </div>
+          </Space>
         </div>
       </SheetContent>
     </Sheet>

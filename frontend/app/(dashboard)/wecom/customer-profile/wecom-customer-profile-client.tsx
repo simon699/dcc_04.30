@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import {
   Button as AntButton,
   DatePicker,
@@ -9,7 +8,7 @@ import {
   Input as AntInput,
   InputNumber,
   Radio,
-  Space,
+  Select,
 } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import "dayjs/locale/zh-cn";
@@ -21,7 +20,7 @@ dayjs.locale("zh-cn");
 
 import type { CustomerProfileApi } from "@/components/customers/customer-center-drawer-panel";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import {
@@ -45,10 +44,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ApiLeadDetail } from "@/components/leads/lead-drawer-panel";
 import { useUiStore } from "@/lib/store/ui-store";
 import { copyPlainText } from "@/lib/copy-to-clipboard";
-import { shareMassSendTextToExternalContacts } from "@/lib/wecom-mass-send";
+import { formatCnWallClockApi } from "@/lib/datetime-cn";
+import {
+  isWeComMacMassSendLimited,
+  shareMassSendTextToExternalContacts,
+} from "@/lib/wecom-mass-send";
 import {
   asTrimmedString,
-  cn,
   expandWecomGetCurExternalContactError,
   formatCaughtError,
   formatHttpApiDetail,
@@ -106,11 +108,20 @@ type ApiTaskRow = {
     status: string;
     target_external_userid: string | null;
     target_phone: string | null;
+    target_lead_id?: string | null;
   };
   target_display_name?: string;
 };
 
 const DEFAULT_FOLLOW_USERID = "ShiFengwei";
+
+const CUSTOMER_LEVEL_OPTIONS = [
+  { value: "H级", label: "H级" },
+  { value: "A级", label: "A级" },
+  { value: "B级", label: "B级" },
+  { value: "C级", label: "C级" },
+  { value: "N级", label: "N级" },
+];
 
 function parseTagLabels(raw: unknown): string[] {
   const s = asTrimmedString(raw);
@@ -479,6 +490,8 @@ export function WecomCustomerProfileClient({
   >(null);
   const [phoneFollowSubmitting, setPhoneFollowSubmitting] =
     React.useState(false);
+  const [phoneFollowCustomerLevel, setPhoneFollowCustomerLevel] =
+    React.useState("N级");
 
   const [massSendWorking, setMassSendWorking] = React.useState(false);
 
@@ -517,7 +530,7 @@ export function WecomCustomerProfileClient({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               status: "done",
-              completed_at: new Date().toISOString(),
+              completed_at: formatCnWallClockApi(dayjs()),
             }),
           }
         );
@@ -579,7 +592,7 @@ export function WecomCustomerProfileClient({
         customer_level: leadRow?.customer_level ?? null,
         remark: followRemark.trim() || null,
         invite_store_at: null,
-        next_follow_at: followNextAt.format("YYYY-MM-DDTHH:mm:00"),
+        next_follow_at: formatCnWallClockApi(followNextAt),
         next_follow_method: followMethod,
       };
       if (!Number.isNaN(tid)) {
@@ -665,10 +678,10 @@ export function WecomCustomerProfileClient({
     try {
       const body: Record<string, unknown> = {
         intent_model: leadRow?.intent_model ?? null,
-        customer_level: leadRow?.customer_level ?? null,
+        customer_level: phoneFollowCustomerLevel,
         remark: phoneFollowRemark.trim() || null,
         invite_store_at: null,
-        next_follow_at: phoneFollowNext.format("YYYY-MM-DDTHH:mm:00"),
+        next_follow_at: formatCnWallClockApi(phoneFollowNext),
         next_follow_method: phoneFollowMethod,
       };
       if (!storedPhone && phoneFollowPhoneExtra.trim()) {
@@ -706,11 +719,20 @@ export function WecomCustomerProfileClient({
     phoneFollowMethod,
     phoneFollowPhoneExtra,
     phoneFollowCallSec,
+    phoneFollowCustomerLevel,
     loadTasks,
     loadTimeline,
     loadLeads,
     loadProfile,
   ]);
+
+  React.useEffect(() => {
+    if (!phoneFollowOpen) return;
+    const lv = asTrimmedString(leads[0]?.customer_level);
+    /* eslint-disable react-hooks/set-state-in-effect -- 打开抽屉时同步线索等级 */
+    setPhoneFollowCustomerLevel(lv || "N级");
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [phoneFollowOpen, leads]);
 
   React.useEffect(() => {
     if (!extUserId) return;
@@ -853,17 +875,6 @@ export function WecomCustomerProfileClient({
                         >
                           电话并跟进
                         </AntButton>
-                        {leads[0]?.id ? (
-                          <Link
-                            href={`/leads/${leads[0].id}/edit?entry=phone`}
-                            className={cn(
-                              buttonVariants({ variant: "outline" }),
-                              "inline-flex items-center gap-1"
-                            )}
-                          >
-                            完整编辑页
-                          </Link>
-                        ) : null}
                       </>
                     ) : (
                       <AntButton disabled icon={<Phone className="size-4" />}>
@@ -871,9 +882,9 @@ export function WecomCustomerProfileClient({
                       </AntButton>
                     )}
                   </div>
-                  {phoneDisplay && leads[0]?.id ? (
+                  {phoneDisplay ? (
                     <p className="text-xs text-muted-foreground">
-                      拨打后请在底部抽屉填写跟进；也可打开完整编辑页。
+                      拨打后请在底部抽屉填写跟进并调整客户等级。
                     </p>
                   ) : null}
                 </div>
@@ -1275,15 +1286,18 @@ export function WecomCustomerProfileClient({
                                   massSendWorking ||
                                   t.channel !== "wecom" ||
                                   !(t.mass_content ?? "").trim() ||
+                                  isWeComMacMassSendLimited() ||
                                   !(
                                     asTrimmedString(tg.target_external_userid) ||
                                     extUserId
                                   )
                                 }
                                 title={
-                                  t.channel !== "wecom"
-                                    ? "非企微渠道请使用复制"
-                                    : undefined
+                                  isWeComMacMassSendLimited()
+                                    ? "Mac 端网页无法带入群发内容与客户，请复制后发送"
+                                    : t.channel !== "wecom"
+                                      ? "非企微渠道请使用复制"
+                                      : undefined
                                 }
                                 onClick={() => {
                                   void (async () => {
@@ -1525,6 +1539,38 @@ export function WecomCustomerProfileClient({
                     </div>
                   ) : null}
                   <div className="space-y-2">
+                    <Label>客户等级</Label>
+                    <Select
+                      className="w-full"
+                      options={CUSTOMER_LEVEL_OPTIONS}
+                      value={phoneFollowCustomerLevel}
+                      onChange={async (v) => {
+                        setPhoneFollowCustomerLevel(v);
+                        const id = leads[0]?.id;
+                        if (!id) return;
+                        try {
+                          const r = await fetch(
+                            `/api/leads/${encodeURIComponent(id)}`,
+                            {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ customer_level: v }),
+                            }
+                          );
+                          const json: unknown = await r.json().catch(() => ({}));
+                          if (!r.ok) throw new Error(formatHttpApiDetail(json));
+                          toast.success("客户等级已保存");
+                          void loadLeads();
+                          void loadProfile();
+                        } catch (e) {
+                          toast.error(
+                            e instanceof Error ? e.message : String(e)
+                          );
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-2">
                     <Label>下次联系时间 *</Label>
                     <DatePicker
                       showTime
@@ -1578,23 +1624,15 @@ export function WecomCustomerProfileClient({
                       placeholder="本次跟进说明"
                     />
                   </div>
-                  <Space direction="vertical" className="w-full" size="middle">
-                    <AntButton
-                      type="primary"
-                      block
-                      size="large"
-                      loading={phoneFollowSubmitting}
-                      onClick={() => void submitPhoneFollowComplete()}
-                    >
-                      保存并完成跟进
-                    </AntButton>
-                    <Link
-                      href={`/leads/${lid}/edit?entry=phone`}
-                      className="block text-center text-sm text-primary underline-offset-4 hover:underline"
-                    >
-                      打开完整编辑页
-                    </Link>
-                  </Space>
+                  <AntButton
+                    type="primary"
+                    block
+                    size="large"
+                    loading={phoneFollowSubmitting}
+                    onClick={() => void submitPhoneFollowComplete()}
+                  >
+                    保存并完成跟进
+                  </AntButton>
                 </>
               )}
             </div>

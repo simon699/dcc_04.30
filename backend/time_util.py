@@ -21,7 +21,7 @@ def parse_iso_datetime_cn(s: str | None) -> datetime | None:
     """
     将前端 / 第三方传入的 ISO 字符串转为「东八区墙钟」naive datetime。
 
-    - ``2026-05-08T10:00:00`` → 视为东八区 10:00（原样数值）
+    - ``2026-05-08T10:00:00`` → 视为东八区 10:00（原样数值，不会再叠加 +8 小时）
     - ``2026-05-08T02:00:00Z`` → 换算为东八区墙钟 10:00
     """
     if s is None or not str(s).strip():

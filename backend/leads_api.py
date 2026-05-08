@@ -296,6 +296,9 @@ def list_leads_by_external_userid(
         sess.close()
 
 
+DEFAULT_CUSTOMER_LEVEL = "N级"
+
+
 class LeadCreate(BaseModel):
     phone: str = Field(default="", max_length=32)
     customer_name: str = Field(default="", max_length=255)
@@ -303,6 +306,10 @@ class LeadCreate(BaseModel):
     intent_model: str | None = Field(None, max_length=255)
     customer_level: str | None = Field(None, max_length=64)
     owner_userid: str = Field(default=DEFAULT_OWNER_USERID, max_length=64)
+
+
+class LeadPatchBody(BaseModel):
+    customer_level: str | None = Field(None, max_length=64)
 
 
 @router.post("/api/leads")
@@ -332,7 +339,7 @@ def create_lead(body: LeadCreate) -> dict[str, Any]:
             customer_name=(body.customer_name or "").strip(),
             external_userid=ext_s or None,
             intent_model=(body.intent_model or "").strip() or None,
-            customer_level=(body.customer_level or "").strip() or None,
+            customer_level=(body.customer_level or "").strip() or DEFAULT_CUSTOMER_LEVEL,
             owner_userid=owner,
         )
         sess.add(lead)
@@ -348,6 +355,29 @@ def create_lead(body: LeadCreate) -> dict[str, Any]:
                 "owner_userid": lead.owner_userid,
             },
         }
+    except Exception:
+        sess.rollback()
+        raise
+    finally:
+        sess.close()
+
+
+@router.patch("/api/leads/{lead_id}")
+def patch_lead(lead_id: int, body: LeadPatchBody) -> dict[str, Any]:
+    """部分更新线索（如 H5 侧仅改客户等级）。"""
+    _require_mysql()
+    sess = get_session()
+    try:
+        row = sess.get(WecomLead, lead_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="线索不存在")
+        if body.customer_level is not None:
+            row.customer_level = (body.customer_level or "").strip() or DEFAULT_CUSTOMER_LEVEL
+        sess.commit()
+        return {"ok": True, "id": str(row.id), "customer_level": row.customer_level}
+    except HTTPException:
+        sess.rollback()
+        raise
     except Exception:
         sess.rollback()
         raise

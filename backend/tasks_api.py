@@ -124,6 +124,49 @@ def _batch_target_display_names(
     return out
 
 
+def _batch_target_lead_ids(
+    sess: Session,
+    pairs: list[tuple[WecomTask, WecomTaskTarget]],
+) -> dict[int, str | None]:
+    """任务对象 → 关联线索 id（优先 external_userid，其次手机号）。"""
+    ext_ids: set[str] = set()
+    phones: set[str] = set()
+    for _, tg in pairs:
+        if tg.target_external_userid and str(tg.target_external_userid).strip():
+            ext_ids.add(str(tg.target_external_userid).strip())
+        if tg.target_phone and str(tg.target_phone).strip():
+            phones.add(str(tg.target_phone).strip())
+
+    lead_by_ext: dict[str, str] = {}
+    if ext_ids:
+        for lead in sess.scalars(
+            select(WecomLead).where(WecomLead.external_userid.in_(ext_ids))
+        ).all():
+            e = (lead.external_userid or "").strip()
+            if e:
+                lead_by_ext[e] = str(lead.id)
+
+    lead_by_phone: dict[str, str] = {}
+    if phones:
+        conds = [WecomLead.phone == p for p in phones]
+        for lead in sess.scalars(select(WecomLead).where(or_(*conds))).all():
+            ph = (lead.phone or "").strip()
+            if ph:
+                lead_by_phone[ph] = str(lead.id)
+
+    out: dict[int, str | None] = {}
+    for _, tg in pairs:
+        ext = (tg.target_external_userid or "").strip()
+        ph = (tg.target_phone or "").strip()
+        lid: str | None = None
+        if ext and ext in lead_by_ext:
+            lid = lead_by_ext[ext]
+        elif ph and ph in lead_by_phone:
+            lid = lead_by_phone[ph]
+        out[tg.id] = lid
+    return out
+
+
 def _maybe_refresh_task_done(sess: Session, task_id: int) -> None:
     """若全部对象已 done/failed 中视为完成，可在此扩展规则；当前仅同步 completed_at 供前端展示。"""
     task = sess.get(WecomTask, task_id)
@@ -253,14 +296,17 @@ def list_task_rows(
         pairs = sess.execute(stmt).all()
 
         name_map = _batch_target_display_names(sess, list(pairs))
+        lead_map = _batch_target_lead_ids(sess, list(pairs))
 
         flat: list[dict[str, Any]] = []
         for t, tg in pairs:
+            tgt = _serialize_target(tg)
+            tgt["target_lead_id"] = lead_map.get(tg.id)
             flat.append(
                 {
                     "row_id": f"{t.id}-{tg.id}",
                     "task": _serialize_task(t, []),
-                    "target": _serialize_target(tg),
+                    "target": tgt,
                     "target_display_name": name_map.get(tg.id, "—"),
                 }
             )
@@ -306,7 +352,16 @@ def list_tasks(
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         rows = sess.scalars(stmt).unique().all()
 
-        items = [_serialize_task(t, list(t.targets)) for t in rows]
+        items: list[dict[str, Any]] = []
+        for t in rows:
+            targets = sorted(t.targets, key=lambda x: x.id)
+            lead_map = _batch_target_lead_ids(sess, [(t, tg) for tg in targets])
+            base = _serialize_task(t, targets)
+            base["targets"] = [
+                {**_serialize_target(tg), "target_lead_id": lead_map.get(tg.id)}
+                for tg in targets
+            ]
+            items.append(base)
         total_pages = (total + page_size - 1) // page_size if total else 0
         return {
             "items": items,
@@ -334,11 +389,13 @@ def get_task(task_id: int) -> dict[str, Any]:
         targets = sorted(t.targets, key=lambda x: x.id)
         pairs = [(t, tg) for tg in targets]
         name_map = _batch_target_display_names(sess, pairs)
+        lead_map = _batch_target_lead_ids(sess, pairs)
         out = _serialize_task(t, targets)
         aug: list[dict[str, Any]] = []
         for tg in targets:
             row = _serialize_target(tg)
             row["target_display_name"] = name_map.get(tg.id, "—")
+            row["target_lead_id"] = lead_map.get(tg.id)
             aug.append(row)
         out["targets"] = aug
         return out

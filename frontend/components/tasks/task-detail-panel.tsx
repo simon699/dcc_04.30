@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { Megaphone } from "lucide-react";
 import { toast } from "sonner";
 
@@ -8,7 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { copyPlainText } from "@/lib/copy-to-clipboard";
-import { shareMassSendTextToExternalContacts } from "@/lib/wecom-mass-send";
+import {
+  isWeComMacMassSendLimited,
+  shareMassSendTextToExternalContacts,
+} from "@/lib/wecom-mass-send";
 
 export type ApiTaskDetail = {
   id: string;
@@ -28,6 +32,7 @@ export type ApiTaskDetail = {
     id: number;
     target_external_userid: string | null;
     target_phone: string | null;
+    target_lead_id?: string | null;
     target_display_name?: string | null;
     status: string;
     started_at: string | null;
@@ -203,14 +208,17 @@ export function TaskDetailPanel({
                 massSendBusy ||
                 !massPlain ||
                 !preferredExternalUserid ||
-                data.channel !== "wecom"
+                data.channel !== "wecom" ||
+                isWeComMacMassSendLimited()
               }
               title={
-                data.channel !== "wecom"
-                  ? "非企微渠道任务请使用复制后自行触达"
-                  : !preferredExternalUserid
-                    ? "任务对象缺少 external_userid，无法调起客户端群发"
-                    : "企业微信内使用 JS-SDK shareToExternalContact（官方文档 93555）"
+                isWeComMacMassSendLimited()
+                  ? "Mac 端企业微信网页无法带入群发正文与客户（官方限制），请用复制内容"
+                  : data.channel !== "wecom"
+                    ? "非企微渠道任务请使用复制后自行触达"
+                    : !preferredExternalUserid
+                      ? "任务对象缺少 external_userid，无法调起客户端群发"
+                      : "企业微信内使用 JS-SDK shareToExternalContact（官方文档 93555）"
               }
               onClick={() => {
                 void (async () => {
@@ -237,7 +245,12 @@ export function TaskDetailPanel({
               {massSendBusy ? "调用中…" : "发起群发"}
             </Button>
           </div>
-          {!preferredExternalUserid ? (
+          {isWeComMacMassSendLimited() ? (
+            <p className="mt-2 text-xs text-amber-700 dark:text-amber-500">
+              Mac 端企业微信不支持从网页向群发助手传入正文与客户（官方文档约 93594），助手内会显示为空；请「复制内容」后在手机端或 Windows
+              客户端发起群发。
+            </p>
+          ) : !preferredExternalUserid ? (
             <p className="mt-2 text-xs text-amber-700 dark:text-amber-500">
               当前任务对象无企微 external_userid，仅可复制正文后手动发送。
             </p>
@@ -318,6 +331,17 @@ export function TaskDetailPanel({
                   </div>
                   {t.remark ? (
                     <p className="mt-1 text-xs">{t.remark}</p>
+                  ) : null}
+                  {data.channel === "phone" &&
+                  (t.target_lead_id ?? "").trim() ? (
+                    <div className="mt-2">
+                      <Link
+                        href={`/leads/${(t.target_lead_id ?? "").trim()}/edit?entry=phone`}
+                        className="text-xs font-medium text-primary underline-offset-4 hover:underline"
+                      >
+                        进入线索编辑（电话跟进）
+                      </Link>
+                    </div>
                   ) : null}
                 </li>
               );
