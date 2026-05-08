@@ -19,7 +19,6 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useUiStore } from "@/lib/store/ui-store";
-import { copyPlainText } from "@/lib/copy-to-clipboard";
 import {
   isWeComMacMassSendLimited,
   shareMassSendTextToExternalContacts,
@@ -408,25 +407,10 @@ export function TaskTable({
                           {t.task_type === "mass_send" &&
                           (t.mass_content ?? "").trim() ? (
                             <>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="gap-1"
-                                title="复制群发正文，可自行粘贴发送"
-                                onClick={async () => {
-                                  const txt = (t.mass_content ?? "").trim();
-                                  const ok = await copyPlainText(txt);
-                                  toast[ok ? "success" : "error"](
-                                    ok ? "已复制群发内容" : "复制失败"
-                                  );
-                                }}
-                              >
-                                复制
-                              </Button>
                               {t.channel === "wecom" ? (
                                 <Button
                                   size="sm"
-                                  variant="secondary"
+                                  variant="default"
                                   className="gap-1"
                                   disabled={
                                     massSendRow === row.row_id ||

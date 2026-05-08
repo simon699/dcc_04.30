@@ -331,7 +331,7 @@ export default function LeadEditPage() {
                 : "—"}
             </p>
             <p>
-              <span className="text-muted-foreground">当前下次跟进（参考）：</span>
+              <span className="text-muted-foreground">当前下次跟进：</span>
               {data.next_follow_up_at
                 ? new Date(data.next_follow_up_at).toLocaleString("zh-CN")
                 : "—"}

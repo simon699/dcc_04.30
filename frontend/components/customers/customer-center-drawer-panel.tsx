@@ -131,6 +131,14 @@ function mapTargetForDrawer(
   return "pending";
 }
 
+function isTaskRowCompleted(row: ApiTaskRow): boolean {
+  const st = row.task.status;
+  if (st === "done" || st === "cancelled") return true;
+  const tg = row.target.status;
+  if (tg === "done" || tg === "failed") return true;
+  return false;
+}
+
 type Props = {
   follow_userid: string;
   external_userid: string;
@@ -252,6 +260,15 @@ export function CustomerCenterDrawerPanel({ follow_userid, external_userid }: Pr
     if (ph) return ph;
     return "—";
   }
+
+  const openTaskRows = React.useMemo(
+    () => tasks.filter((r) => !isTaskRowCompleted(r)),
+    [tasks]
+  );
+  const doneTaskRows = React.useMemo(
+    () => tasks.filter((r) => isTaskRowCompleted(r)),
+    [tasks]
+  );
 
   async function savePhone() {
     if (!profile) return;
@@ -478,57 +495,122 @@ export function CustomerCenterDrawerPanel({ follow_userid, external_userid }: Pr
           )}
         </TabsContent>
 
-        <TabsContent value="tasks" className="mt-3 space-y-2">
+        <TabsContent value="tasks" className="mt-3 space-y-4">
           {loadingTasks ? (
             <p className="text-sm text-muted-foreground">加载任务…</p>
           ) : tasks.length === 0 ? (
             <p className="text-sm text-muted-foreground">暂无任务对象</p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>任务</TableHead>
-                  <TableHead className="hidden sm:table-cell">对象</TableHead>
-                  <TableHead className="w-[88px] text-right sm:text-left">状态</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {tasks.map((row) => {
-                  const t = row.task;
-                  const tg = row.target;
-                  return (
-                    <TableRow key={row.row_id}>
-                      <TableCell>
-                        <button
-                          type="button"
-                          className="text-left font-medium underline decoration-primary/30 underline-offset-4"
-                          onClick={() =>
-                            openDrawer({
-                              type: "task",
-                              id: t.id,
-                              apiTargetId: String(tg.id),
-                              currentCustomerName: targetLabel(row),
-                              currentCustomerStatus: mapTargetForDrawer(tg.status),
-                            })
-                          }
-                        >
-                          {t.name}
-                        </button>
-                        <div className="text-xs text-muted-foreground">
-                          {taskStatusLabel(t.status, t.deadline)}
-                        </div>
-                      </TableCell>
-                      <TableCell className="hidden max-w-[140px] truncate text-sm sm:table-cell">
-                        {targetLabel(row)}
-                      </TableCell>
-                      <TableCell className="text-right text-xs text-muted-foreground sm:text-left">
-                        {targetStatusLabel(tg.status)}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+            <>
+              {openTaskRows.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    未完成
+                  </p>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>任务</TableHead>
+                        <TableHead className="hidden sm:table-cell">对象</TableHead>
+                        <TableHead className="w-[88px] text-right sm:text-left">
+                          状态
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {openTaskRows.map((row) => {
+                        const t = row.task;
+                        const tg = row.target;
+                        return (
+                          <TableRow key={row.row_id}>
+                            <TableCell>
+                              <button
+                                type="button"
+                                className="text-left font-medium underline decoration-primary/30 underline-offset-4"
+                                onClick={() =>
+                                  openDrawer({
+                                    type: "task",
+                                    id: t.id,
+                                    apiTargetId: String(tg.id),
+                                    currentCustomerName: targetLabel(row),
+                                    currentCustomerStatus: mapTargetForDrawer(tg.status),
+                                  })
+                                }
+                              >
+                                {t.name}
+                              </button>
+                              <div className="text-xs text-muted-foreground">
+                                {taskStatusLabel(t.status, t.deadline)}
+                              </div>
+                            </TableCell>
+                            <TableCell className="hidden max-w-[140px] truncate text-sm sm:table-cell">
+                              {targetLabel(row)}
+                            </TableCell>
+                            <TableCell className="text-right text-xs text-muted-foreground sm:text-left">
+                              {targetStatusLabel(tg.status)}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : null}
+              {doneTaskRows.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    已完成
+                  </p>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>任务</TableHead>
+                        <TableHead className="hidden sm:table-cell">对象</TableHead>
+                        <TableHead className="w-[88px] text-right sm:text-left">
+                          状态
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {doneTaskRows.map((row) => {
+                        const t = row.task;
+                        const tg = row.target;
+                        return (
+                          <TableRow key={row.row_id}>
+                            <TableCell>
+                              <button
+                                type="button"
+                                className="text-left font-medium underline decoration-primary/30 underline-offset-4"
+                                onClick={() =>
+                                  openDrawer({
+                                    type: "task",
+                                    id: t.id,
+                                    apiTargetId: String(tg.id),
+                                    currentCustomerName: targetLabel(row),
+                                    currentCustomerStatus: mapTargetForDrawer(tg.status),
+                                  })
+                                }
+                              >
+                                {t.name}
+                              </button>
+                              <div className="text-xs text-muted-foreground">
+                                {taskStatusLabel(t.status, t.deadline)}
+                              </div>
+                            </TableCell>
+                            <TableCell className="hidden max-w-[140px] truncate text-sm sm:table-cell">
+                              {targetLabel(row)}
+                            </TableCell>
+                            <TableCell className="text-right text-xs text-muted-foreground sm:text-left">
+                              {targetStatusLabel(tg.status)}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : null}
+            </>
           )}
         </TabsContent>
       </Tabs>

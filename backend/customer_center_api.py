@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func as sql_func, or_, select
+from sqlalchemy import and_, func as sql_func, or_, select
 from sqlalchemy.orm import Session
 
 from db import get_session
@@ -45,6 +45,20 @@ def _task_type_label(tt: str | None) -> str:
     return tt or "—"
 
 
+def _sidebar_customer_task_target_where(ext: str, phones: list[str]):
+    """侧边栏当前客户：任务对象须为该 external，或未绑 external 且手机号与该客户线索一致（避免手机号串到其他联系人任务）。"""
+    empty_external = or_(
+        WecomTaskTarget.target_external_userid.is_(None),
+        WecomTaskTarget.target_external_userid == "",
+    )
+    parts: list[Any] = [WecomTaskTarget.target_external_userid == ext]
+    ps = [(p or "").strip() for p in phones if (p or "").strip()]
+    if ps:
+        phone_or = or_(*[WecomTaskTarget.target_phone == p for p in ps])
+        parts.append(and_(empty_external, phone_or))
+    return or_(*parts)
+
+
 def _related_follow_up_tasks_around(
     sess: Session,
     ext: str,
@@ -52,10 +66,7 @@ def _related_follow_up_tasks_around(
     follow_at: datetime,
 ) -> tuple[str | None, str | None]:
     """线索跟进同一时刻关联的跟进任务：刚完成的对象与新建任务名称。"""
-    tgt_conds: list[Any] = [WecomTaskTarget.target_external_userid == ext]
-    for ph in phones:
-        tgt_conds.append(WecomTaskTarget.target_phone == ph)
-    tgt_where = or_(*tgt_conds)
+    tgt_where = _sidebar_customer_task_target_where(ext, phones)
 
     window = timedelta(seconds=20)
     w0 = follow_at - window
@@ -358,10 +369,7 @@ def customer_timeline(
                     ev_follow["new_follow_task_name"] = next_name
                 events.append(ev_follow)
 
-        tgt_conds: list[Any] = [WecomTaskTarget.target_external_userid == ext]
-        for ph in phones:
-            tgt_conds.append(WecomTaskTarget.target_phone == ph)
-        tgt_where = or_(*tgt_conds)
+        tgt_where = _sidebar_customer_task_target_where(ext, phones)
 
         tgt_rows = sess.execute(
             select(WecomTaskTarget, WecomTask)

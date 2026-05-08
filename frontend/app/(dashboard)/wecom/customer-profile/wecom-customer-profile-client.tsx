@@ -42,7 +42,6 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ApiLeadDetail } from "@/components/leads/lead-drawer-panel";
-import { useUiStore } from "@/lib/store/ui-store";
 import { copyPlainText } from "@/lib/copy-to-clipboard";
 import { formatCnWallClockApi } from "@/lib/datetime-cn";
 import {
@@ -267,8 +266,6 @@ export function WecomCustomerProfileClient({
   const corpId = process.env.NEXT_PUBLIC_WECOM_CORP_ID ?? "";
   const agentId = process.env.NEXT_PUBLIC_WECOM_AGENT_ID ?? "";
   const fu = asTrimmedString(followUserid ?? DEFAULT_FOLLOW_USERID);
-
-  const openDrawer = useUiStore((s) => s.openDrawer);
 
   const [externalContact, setExternalContact] = React.useState<ExternalContactSdkState>(() => {
     if (!corpId.trim() || !agentId.trim()) {
@@ -772,9 +769,23 @@ export function WecomCustomerProfileClient({
   }, [leads]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  const scopedTasks = React.useMemo(() => {
-    if (taskListScope === "all") return tasks;
+  /** 与后端侧边栏客户范围一致：仅该 external，或同侧未绑 external 且手机号与跟进资料一致 */
+  const customerTaskRows = React.useMemo(() => {
+    if (!extUserId) return [];
+    const ext = extUserId.trim();
+    const profilePhone = asTrimmedString(profile?.phone).replace(/\s/g, "");
     return tasks.filter((row) => {
+      const te = asTrimmedString(row.target.target_external_userid);
+      const tp = asTrimmedString(row.target.target_phone).replace(/\s/g, "");
+      if (te === ext) return true;
+      if (!te && profilePhone && tp === profilePhone) return true;
+      return false;
+    });
+  }, [tasks, extUserId, profile?.phone]);
+
+  const scopedTasks = React.useMemo(() => {
+    if (taskListScope === "all") return customerTaskRows;
+    return customerTaskRows.filter((row) => {
       const t = row.task;
       const tg = row.target;
       return (
@@ -784,7 +795,7 @@ export function WecomCustomerProfileClient({
         tg.status !== "failed"
       );
     });
-  }, [tasks, taskListScope]);
+  }, [customerTaskRows, taskListScope]);
 
   const displayName = profile
     ? asTrimmedString(profile.display_name) || asTrimmedString(profile.external_userid)
@@ -895,11 +906,8 @@ export function WecomCustomerProfileClient({
       ) : null}
 
       {externalContact.kind === "success" && profile ? (
-        <Tabs defaultValue="tasks" className="w-full">
+        <Tabs defaultValue="timeline" className="w-full">
           <TabsList variant="line" className="w-full flex-wrap justify-start bg-transparent p-0">
-            <TabsTrigger value="tasks" className="px-3 py-2">
-              任务
-            </TabsTrigger>
             <TabsTrigger value="timeline" className="px-3 py-2">
               客户轨迹
             </TabsTrigger>
@@ -911,10 +919,10 @@ export function WecomCustomerProfileClient({
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="tasks" className="mt-3">
+          <TabsContent value="timeline" className="mt-3 space-y-3">
             <Card>
               <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
-                <CardTitle className="text-base">任务</CardTitle>
+                <CardTitle className="text-base">当前任务</CardTitle>
                 <div className="flex gap-2">
                   <Button
                     type="button"
@@ -938,7 +946,9 @@ export function WecomCustomerProfileClient({
                 {loadingTasks ? (
                   <p className="px-4 py-3 text-sm text-muted-foreground">加载中…</p>
                 ) : tasks.length === 0 ? (
-                  <p className="px-4 py-3 text-sm text-muted-foreground">暂无任务对象</p>
+                  <p className="px-4 py-3 text-sm text-muted-foreground">
+                    暂无与该客户相关的任务对象
+                  </p>
                 ) : scopedTasks.length === 0 ? (
                   <p className="px-4 py-3 text-sm text-muted-foreground">
                     暂无未完成任务
@@ -1007,12 +1017,13 @@ export function WecomCustomerProfileClient({
                 )}
               </CardContent>
             </Card>
-          </TabsContent>
 
-          <TabsContent value="timeline" className="mt-3">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">轨迹</CardTitle>
+                <CardTitle className="text-base">动态轨迹</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  仅展示当前侧边栏客户在本系统的跟进记录与任务动态。
+                </p>
               </CardHeader>
               <CardContent>
                 {loadingTimeline ? (
@@ -1130,7 +1141,7 @@ export function WecomCustomerProfileClient({
                         <dd>{leadDetail.owner_userid ?? "—"}</dd>
                       </div>
                       <div>
-                        <dt className="text-muted-foreground">下次跟进（参考）</dt>
+                        <dt className="text-muted-foreground">下次跟进</dt>
                         <dd>
                           {leadDetail.next_follow_up_at
                             ? new Date(leadDetail.next_follow_up_at).toLocaleString(
@@ -1146,17 +1157,49 @@ export function WecomCustomerProfileClient({
                         </dd>
                       </div>
                     </dl>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="w-full"
-                      onClick={() =>
-                        openDrawer({ type: "lead", id: leadDetail.id })
-                      }
-                    >
-                      侧边栏查看完整跟进记录
-                    </Button>
+                    <div className="border-t border-border/60 pt-4">
+                      <p className="mb-3 text-sm font-medium">跟进记录</p>
+                      {!leadDetail.follows?.length ? (
+                        <p className="text-xs text-muted-foreground">暂无跟进记录</p>
+                      ) : (
+                        <ul className="max-h-80 space-y-3 overflow-y-auto pr-1">
+                          {leadDetail.follows.map((f) => (
+                            <li
+                              key={f.id}
+                              className="rounded-md border border-border/60 bg-muted/25 px-3 py-2.5"
+                            >
+                              <p className="text-xs text-muted-foreground">
+                                {f.follow_at
+                                  ? new Date(f.follow_at).toLocaleString("zh-CN")
+                                  : "—"}
+                              </p>
+                              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                                {f.follow_method ? (
+                                  <span>
+                                    方式：{followMethodCn(f.follow_method)}
+                                  </span>
+                                ) : null}
+                                {f.call_duration_seconds != null &&
+                                f.call_duration_seconds > 0 ? (
+                                  <span>通话 {f.call_duration_seconds} 秒</span>
+                                ) : null}
+                              </div>
+                              {f.next_follow_at ? (
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  约定下次：
+                                  {new Date(f.next_follow_at).toLocaleString("zh-CN")}
+                                </p>
+                              ) : null}
+                              {f.remark?.trim() ? (
+                                <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                                  {f.remark.trim()}
+                                </p>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <p className="text-muted-foreground">无法加载线索详情</p>
@@ -1358,7 +1401,7 @@ export function WecomCustomerProfileClient({
                             size="lg"
                             onClick={() => setTaskSheetStep("follow")}
                           >
-                            完成任务
+                            去执行任务
                           </Button>
                         ) : (
                           <Button

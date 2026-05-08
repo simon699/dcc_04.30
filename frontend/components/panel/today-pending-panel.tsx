@@ -155,8 +155,35 @@ export function TodayPendingPanel() {
   const [phoneFollowErr, setPhoneFollowErr] = React.useState<string | null>(
     null
   );
+  const [tabCounts, setTabCounts] = React.useState({ phone: 0, wecom: 0 });
 
   const deadlineOn = React.useMemo(() => todayIsoLocal(), []);
+
+  const loadTabCounts = React.useCallback(async () => {
+    const fetchTotal = async (ch: "phone" | "wecom") => {
+      const q = new URLSearchParams();
+      q.set("page", "1");
+      q.set("page_size", "1");
+      q.set("deadline_on", deadlineOn);
+      q.set("deadline_sort", "asc");
+      q.set("target_pending_only", "true");
+      q.set("channel", ch);
+      q.set("creator_userid", DEFAULT_LEAD_OWNER_USERID);
+      const r = await fetch(`/api/task-rows?${q.toString()}`);
+      if (!r.ok) return 0;
+      const d = (await r.json()) as { total?: number };
+      return d.total ?? 0;
+    };
+    try {
+      const [phone, wecom] = await Promise.all([
+        fetchTotal("phone"),
+        fetchTotal("wecom"),
+      ]);
+      setTabCounts({ phone, wecom });
+    } catch {
+      setTabCounts({ phone: 0, wecom: 0 });
+    }
+  }, [deadlineOn]);
 
   const load = React.useCallback(() => {
     setLoading(true);
@@ -183,6 +210,7 @@ export function TodayPendingPanel() {
         setItems(d.items ?? []);
         setTotal(d.total ?? 0);
         setSelected(new Set());
+        void loadTabCounts();
       })
       .catch((e: Error) => {
         setItems([]);
@@ -191,7 +219,7 @@ export function TodayPendingPanel() {
         setErr(e.message || "加载失败");
       })
       .finally(() => setLoading(false));
-  }, [page, deadlineOn, channelTab]);
+  }, [page, deadlineOn, channelTab, loadTabCounts]);
 
   React.useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 列表拉取
@@ -468,9 +496,15 @@ export function TodayPendingPanel() {
         >
           <TabsTrigger value="phone" className="px-3 py-2">
             电话
+            <span className="ml-1 tabular-nums text-muted-foreground">
+              （{tabCounts.phone}）
+            </span>
           </TabsTrigger>
           <TabsTrigger value="wecom" className="px-3 py-2">
             企微
+            <span className="ml-1 tabular-nums text-muted-foreground">
+              （{tabCounts.wecom}）
+            </span>
           </TabsTrigger>
         </TabsList>
 
