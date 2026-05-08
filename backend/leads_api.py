@@ -522,6 +522,11 @@ class LeadCompleteFollowBody(BaseModel):
     invite_store_at: str | None = Field(None, description="邀约到店日期，可选")
     next_follow_at: str = Field(..., min_length=1)
     next_follow_method: str = Field(..., min_length=1, description="phone 或 wecom")
+    external_userid: str | None = Field(
+        None,
+        max_length=128,
+        description="未加微时关联企微客户 external_userid（与创建线索规则一致，不可占用其他线索）",
+    )
     phone: str | None = Field(
         None,
         max_length=32,
@@ -567,6 +572,23 @@ def complete_lead_follow(lead_id: int, body: LeadCompleteFollowBody) -> dict[str
         phone_patch = (body.phone or "").strip()
         if phone_patch:
             lead.phone = phone_patch[:32]
+
+        ext_link = (body.external_userid or "").strip() or None
+        if ext_link:
+            if not (lead.external_userid or "").strip():
+                dup_other = sess.scalars(
+                    select(WecomLead.id).where(
+                        WecomLead.external_userid == ext_link,
+                        WecomLead.id != lead_id,
+                    ).limit(1)
+                ).first()
+                if dup_other is not None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="该企微客户已绑定其他线索，无法重复关联",
+                    )
+                lead.external_userid = ext_link
+                sess.flush()
 
         _complete_prior_follow_task_for_lead(sess, lead, body.completed_task_id)
 
