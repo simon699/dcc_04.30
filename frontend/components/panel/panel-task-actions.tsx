@@ -46,7 +46,14 @@ export function PanelTaskActions({ taskId }: { taskId: string }) {
         <a
           href={`tel:${(getLead(task.leadId)?.phone ?? "").replace(/\s/g, "")}`}
           className={cn(buttonVariants({ size: "sm" }), "gap-1")}
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            const lead = getLead(task.leadId);
+            const ph = (lead?.phone ?? "").replace(/\s/g, "");
+            if (ph && task.leadId) {
+              router.push(`/leads/${task.leadId}/edit?entry=phone`);
+            }
+          }}
         >
           <Phone className="size-3.5" />
           电话

@@ -11,14 +11,9 @@ from sqlalchemy import func as sql_func, select
 
 from db import get_session
 from models import WecomLead, WecomLeadFollow, WecomTask, WecomTaskTarget
+from time_util import format_iso_cn as _dt_iso
 
 router = APIRouter()
-
-
-def _dt_iso(v: datetime | None) -> str | None:
-    if v is None:
-        return None
-    return v.isoformat()
 
 
 def _require_mysql() -> None:

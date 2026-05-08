@@ -1,15 +1,28 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
+import {
+  Button as AntButton,
+  DatePicker,
+  Drawer,
+  Input as AntInput,
+  InputNumber,
+  Radio,
+  Space,
+} from "antd";
+import dayjs, { type Dayjs } from "dayjs";
+import "dayjs/locale/zh-cn";
 import { getCurExternalContact, register } from "@wecom/jssdk";
 import { Phone, UserRound } from "lucide-react";
 import { toast } from "sonner";
+
+dayjs.locale("zh-cn");
 
 import type { CustomerProfileApi } from "@/components/customers/customer-center-drawer-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Sheet,
@@ -20,7 +33,6 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -32,6 +44,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ApiLeadDetail } from "@/components/leads/lead-drawer-panel";
 import { useUiStore } from "@/lib/store/ui-store";
+import { copyPlainText } from "@/lib/copy-to-clipboard";
+import { shareMassSendTextToExternalContacts } from "@/lib/wecom-mass-send";
 import {
   asTrimmedString,
   cn,
@@ -85,6 +99,7 @@ type ApiTaskRow = {
     task_type: string;
     channel: string;
     creator_userid: string;
+    mass_content?: string | null;
   };
   target: {
     id: number;
@@ -151,14 +166,8 @@ function targetLabel(row: ApiTaskRow): string {
   return "—";
 }
 
-function defaultTomorrowMorning(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  d.setHours(10, 0, 0, 0);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}T10:00`;
+function defaultTomorrowMorningDayjs(): Dayjs {
+  return dayjs().add(1, "day").hour(10).minute(0).second(0);
 }
 
 function taskTypeShort(t: string): string {
@@ -281,7 +290,11 @@ export function WecomCustomerProfileClient({
         register({
           corpId: corpId.trim(),
           agentId: Number(agentId.trim()),
-          jsApiList: ["getCurExternalContact", "openEnterpriseChat"],
+          jsApiList: [
+            "getCurExternalContact",
+            "openEnterpriseChat",
+            "shareToExternalContact",
+          ],
           getConfigSignature: async (url) => {
             const r = await fetch(
               `/api/wecom/jssdk/corp-signature?url=${encodeURIComponent(url)}`,
@@ -443,7 +456,7 @@ export function WecomCustomerProfileClient({
   const [taskSheetStep, setTaskSheetStep] = React.useState<"detail" | "follow">(
     "detail"
   );
-  const [followNextAt, setFollowNextAt] = React.useState("");
+  const [followNextAt, setFollowNextAt] = React.useState<Dayjs | null>(null);
   const [followRemark, setFollowRemark] = React.useState("");
   const [followMethod, setFollowMethod] = React.useState<"phone" | "wecom">(
     "wecom"
@@ -451,6 +464,23 @@ export function WecomCustomerProfileClient({
   const [followPhoneExtra, setFollowPhoneExtra] = React.useState("");
   const [followCallSec, setFollowCallSec] = React.useState("");
   const [followSubmitting, setFollowSubmitting] = React.useState(false);
+
+  const [phoneFollowOpen, setPhoneFollowOpen] = React.useState(false);
+  const [phoneFollowNext, setPhoneFollowNext] = React.useState<Dayjs | null>(
+    null
+  );
+  const [phoneFollowRemark, setPhoneFollowRemark] = React.useState("");
+  const [phoneFollowMethod, setPhoneFollowMethod] = React.useState<
+    "phone" | "wecom"
+  >("phone");
+  const [phoneFollowPhoneExtra, setPhoneFollowPhoneExtra] = React.useState("");
+  const [phoneFollowCallSec, setPhoneFollowCallSec] = React.useState<
+    number | null
+  >(null);
+  const [phoneFollowSubmitting, setPhoneFollowSubmitting] =
+    React.useState(false);
+
+  const [massSendWorking, setMassSendWorking] = React.useState(false);
 
   const [taskListScope, setTaskListScope] = React.useState<"open" | "all">(
     "open"
@@ -464,7 +494,7 @@ export function WecomCustomerProfileClient({
     setFollowRemark("");
     setFollowCallSec("");
     setFollowPhoneExtra("");
-    setFollowNextAt(defaultTomorrowMorning());
+    setFollowNextAt(defaultTomorrowMorningDayjs());
     const t = row.task;
     setFollowMethod(t.channel === "phone" ? "phone" : "wecom");
   }, []);
@@ -516,7 +546,7 @@ export function WecomCustomerProfileClient({
     const profilePhone = asTrimmedString(profile?.phone);
     const effectivePhone =
       storedPhone || followPhoneExtra.trim() || profilePhone;
-    if (!followNextAt.trim()) {
+    if (!followNextAt?.isValid()) {
       toast.error("请填写下次联系时间");
       return;
     }
@@ -549,7 +579,7 @@ export function WecomCustomerProfileClient({
         customer_level: leadRow?.customer_level ?? null,
         remark: followRemark.trim() || null,
         invite_store_at: null,
-        next_follow_at: followNextAt.trim(),
+        next_follow_at: followNextAt.format("YYYY-MM-DDTHH:mm:00"),
         next_follow_method: followMethod,
       };
       if (!Number.isNaN(tid)) {
@@ -596,6 +626,92 @@ export function WecomCustomerProfileClient({
     loadLeads,
   ]);
 
+  const submitPhoneFollowComplete = React.useCallback(async () => {
+    const leadId = leads[0]?.id;
+    if (!leadId) {
+      toast.error("暂无关联线索，无法提交跟进");
+      return;
+    }
+    const leadRow = leads.find((l) => l.id === leadId);
+    const storedPhone = asTrimmedString(leadRow?.phone);
+    const profilePhone = asTrimmedString(profile?.phone);
+    const effectivePhone =
+      storedPhone || phoneFollowPhoneExtra.trim() || profilePhone;
+    if (!phoneFollowNext?.isValid()) {
+      toast.error("请填写下次联系时间");
+      return;
+    }
+    if (phoneFollowMethod === "phone" && !effectivePhone) {
+      toast.error("电话跟进请先填写手机号（线索或下方补充）");
+      return;
+    }
+    let callDurationSeconds: number | undefined;
+    if (
+      phoneFollowMethod === "phone" &&
+      phoneFollowCallSec != null &&
+      phoneFollowCallSec >= 0
+    ) {
+      callDurationSeconds = Math.floor(phoneFollowCallSec);
+    }
+    const extOk =
+      Boolean(asTrimmedString(profile?.external_userid)) ||
+      Boolean(asTrimmedString(leadRow?.external_userid));
+    const phoneOk = Boolean(effectivePhone);
+    if (!phoneOk && !extOk) {
+      toast.error("缺少手机号与企微身份，无法生成任务");
+      return;
+    }
+    setPhoneFollowSubmitting(true);
+    try {
+      const body: Record<string, unknown> = {
+        intent_model: leadRow?.intent_model ?? null,
+        customer_level: leadRow?.customer_level ?? null,
+        remark: phoneFollowRemark.trim() || null,
+        invite_store_at: null,
+        next_follow_at: phoneFollowNext.format("YYYY-MM-DDTHH:mm:00"),
+        next_follow_method: phoneFollowMethod,
+      };
+      if (!storedPhone && phoneFollowPhoneExtra.trim()) {
+        body.phone = phoneFollowPhoneExtra.trim();
+      }
+      if (callDurationSeconds !== undefined) {
+        body.call_duration_seconds = callDurationSeconds;
+      }
+      const r = await fetch(
+        `/api/leads/${encodeURIComponent(leadId)}/complete-follow`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }
+      );
+      const json: unknown = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(formatHttpApiDetail(json));
+      toast.success("跟进已保存，并已生成下次跟进任务");
+      setPhoneFollowOpen(false);
+      void loadTasks();
+      void loadTimeline();
+      void loadLeads();
+      void loadProfile();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPhoneFollowSubmitting(false);
+    }
+  }, [
+    leads,
+    profile,
+    phoneFollowNext,
+    phoneFollowRemark,
+    phoneFollowMethod,
+    phoneFollowPhoneExtra,
+    phoneFollowCallSec,
+    loadTasks,
+    loadTimeline,
+    loadLeads,
+    loadProfile,
+  ]);
+
   React.useEffect(() => {
     if (!extUserId) return;
     /* eslint-disable react-hooks/set-state-in-effect -- 并行拉取 tab 数据 */
@@ -605,6 +721,7 @@ export function WecomCustomerProfileClient({
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [extUserId, loadTimeline, loadLeads, loadTasks]);
 
+  /* eslint-disable react-hooks/set-state-in-effect -- 依列表首条拉取/清空线索详情 */
   React.useEffect(() => {
     const first = leads[0];
     if (!first?.id) {
@@ -631,6 +748,7 @@ export function WecomCustomerProfileClient({
       cancelled = true;
     };
   }, [leads]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const scopedTasks = React.useMemo(() => {
     if (taskListScope === "all") return tasks;
@@ -716,21 +834,48 @@ export function WecomCustomerProfileClient({
                   </div>
                 </div>
 
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {phoneDisplay ? (
-                    <a
-                      href={`tel:${phoneDisplay.replace(/\s/g, "")}`}
-                      className={cn(buttonVariants(), "gap-1")}
-                    >
-                      <Phone className="size-4" />
-                      电话
-                    </a>
-                  ) : (
-                    <Button disabled variant="outline" className="gap-1">
-                      <Phone className="size-4" />
-                      无手机号
-                    </Button>
-                  )}
+                <div className="mt-4 flex flex-col gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    {phoneDisplay ? (
+                      <>
+                        <AntButton
+                          type="primary"
+                          icon={<Phone className="size-4" />}
+                          onClick={() => {
+                            window.location.href = `tel:${phoneDisplay.replace(/\s/g, "")}`;
+                            setPhoneFollowNext(defaultTomorrowMorningDayjs());
+                            setPhoneFollowRemark("");
+                            setPhoneFollowMethod("phone");
+                            setPhoneFollowPhoneExtra("");
+                            setPhoneFollowCallSec(null);
+                            setPhoneFollowOpen(true);
+                          }}
+                        >
+                          电话并跟进
+                        </AntButton>
+                        {leads[0]?.id ? (
+                          <Link
+                            href={`/leads/${leads[0].id}/edit?entry=phone`}
+                            className={cn(
+                              buttonVariants({ variant: "outline" }),
+                              "inline-flex items-center gap-1"
+                            )}
+                          >
+                            完整编辑页
+                          </Link>
+                        ) : null}
+                      </>
+                    ) : (
+                      <AntButton disabled icon={<Phone className="size-4" />}>
+                        无手机号
+                      </AntButton>
+                    )}
+                  </div>
+                  {phoneDisplay && leads[0]?.id ? (
+                    <p className="text-xs text-muted-foreground">
+                      拨打后请在底部抽屉填写跟进；也可打开完整编辑页。
+                    </p>
+                  ) : null}
                 </div>
               </>
             ) : null}
@@ -1090,6 +1235,108 @@ export function WecomCustomerProfileClient({
                         </div>
                         {!canAct ? (
                           <p className="text-center text-muted-foreground">当前任务已结束</p>
+                        ) : t.task_type === "mass_send" ? (
+                          <div className="space-y-3">
+                            <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+                              <p className="text-xs font-medium text-muted-foreground">
+                                群发内容
+                              </p>
+                              <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">
+                                {(t.mass_content ?? "").trim() || "（任务未配置群发正文）"}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="flex-1 min-w-[7rem]"
+                                disabled={!(t.mass_content ?? "").trim()}
+                                onClick={async () => {
+                                  const txt = (t.mass_content ?? "").trim();
+                                  if (!txt) {
+                                    toast.error("暂无群发内容可复制");
+                                    return;
+                                  }
+                                  const ok = await copyPlainText(txt);
+                                  toast[ok ? "success" : "error"](
+                                    ok ? "已复制，可在会话中自行粘贴发送" : "复制失败"
+                                  );
+                                }}
+                              >
+                                复制内容
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="default"
+                                size="sm"
+                                className="flex-1 min-w-[7rem]"
+                                disabled={
+                                  massSendWorking ||
+                                  t.channel !== "wecom" ||
+                                  !(t.mass_content ?? "").trim() ||
+                                  !(
+                                    asTrimmedString(tg.target_external_userid) ||
+                                    extUserId
+                                  )
+                                }
+                                title={
+                                  t.channel !== "wecom"
+                                    ? "非企微渠道请使用复制"
+                                    : undefined
+                                }
+                                onClick={() => {
+                                  void (async () => {
+                                    const txt = (t.mass_content ?? "").trim();
+                                    const extTarget =
+                                      asTrimmedString(tg.target_external_userid) ||
+                                      extUserId;
+                                    if (!txt) {
+                                      toast.error("暂无群发内容");
+                                      return;
+                                    }
+                                    if (!extTarget) {
+                                      toast.error("缺少客户 external_userid，无法发起群发");
+                                      return;
+                                    }
+                                    setMassSendWorking(true);
+                                    try {
+                                      const r = await shareMassSendTextToExternalContacts({
+                                        content: txt,
+                                        externalUserIds: [extTarget],
+                                      });
+                                      if (!r.ok) {
+                                        toast.error(r.message ?? "发起群发失败");
+                                        return;
+                                      }
+                                      toast.success(
+                                        "已调起企业微信群发助手，请在客户端内确认发送客户"
+                                      );
+                                    } finally {
+                                      setMassSendWorking(false);
+                                    }
+                                  })();
+                                }}
+                              >
+                                {massSendWorking ? "调用中…" : "发送（群发助手）"}
+                              </Button>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              「发送」使用官方接口 shareToExternalContact（文档
+                              93555）；「复制」仅复制正文，由您手动发送。
+                            </p>
+                            <Button
+                              type="button"
+                              className="w-full"
+                              size="lg"
+                              variant="secondary"
+                              onClick={() =>
+                                void completeTaskTargetSimple(taskSheetRow)
+                              }
+                            >
+                              标记任务对象已完成
+                            </Button>
+                          </div>
                         ) : t.task_type === "follow_up" ? (
                           <Button
                             type="button"
@@ -1139,7 +1386,7 @@ export function WecomCustomerProfileClient({
                           {needPhoneExtra ? (
                             <div className="space-y-2">
                               <Label htmlFor="h5-follow-phone">手机号（无主档时填写）</Label>
-                              <Input
+                              <AntInput
                                 id="h5-follow-phone"
                                 value={followPhoneExtra}
                                 onChange={(e) => setFollowPhoneExtra(e.target.value)}
@@ -1153,58 +1400,58 @@ export function WecomCustomerProfileClient({
                             <Label htmlFor="h5-follow-next">
                               下次联系时间 <span className="text-destructive">*</span>
                             </Label>
-                            <Input
+                            <DatePicker
                               id="h5-follow-next"
-                              type="datetime-local"
+                              showTime
                               value={followNextAt}
-                              onChange={(e) => setFollowNextAt(e.target.value)}
+                              onChange={(v) => setFollowNextAt(v)}
+                              format="YYYY-MM-DD HH:mm"
+                              className="w-full"
+                              needConfirm={false}
                             />
                           </div>
 
                           <div className="space-y-2">
                             <Label>跟进方式</Label>
-                            <div className="flex gap-2">
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant={followMethod === "phone" ? "default" : "outline"}
-                                disabled={!canPickPhone}
-                                title={
-                                  !canPickPhone ? "请先填写可用手机号" : undefined
-                                }
-                                onClick={() => setFollowMethod("phone")}
-                              >
+                            <Radio.Group
+                              value={followMethod}
+                              onChange={(e) =>
+                                setFollowMethod(e.target.value as "phone" | "wecom")
+                              }
+                            >
+                              <Radio.Button value="phone" disabled={!canPickPhone}>
                                 电话
-                              </Button>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant={followMethod === "wecom" ? "default" : "outline"}
-                                onClick={() => setFollowMethod("wecom")}
-                              >
-                                微信
-                              </Button>
-                            </div>
+                              </Radio.Button>
+                              <Radio.Button value="wecom">微信</Radio.Button>
+                            </Radio.Group>
                           </div>
 
                           {followMethod === "phone" ? (
                             <div className="space-y-2">
                               <Label htmlFor="h5-follow-call">通话时长（秒，选填）</Label>
-                              <Input
+                              <InputNumber
                                 id="h5-follow-call"
-                                inputMode="numeric"
-                                value={followCallSec}
-                                onChange={(e) =>
-                                  setFollowCallSec(e.target.value.replace(/\D/g, ""))
+                                min={0}
+                                max={86400}
+                                value={
+                                  followCallSec.trim()
+                                    ? Number(followCallSec)
+                                    : undefined
+                                }
+                                onChange={(v) =>
+                                  setFollowCallSec(
+                                    v != null && !Number.isNaN(v) ? String(v) : ""
+                                  )
                                 }
                                 placeholder="例如 180"
+                                className="w-full"
                               />
                             </div>
                           ) : null}
 
                           <div className="space-y-2">
                             <Label htmlFor="h5-follow-remark">跟进备注</Label>
-                            <Textarea
+                            <AntInput.TextArea
                               id="h5-follow-remark"
                               value={followRemark}
                               onChange={(e) => setFollowRemark(e.target.value)}
@@ -1236,6 +1483,124 @@ export function WecomCustomerProfileClient({
           ) : null}
         </SheetContent>
       </Sheet>
+
+      <Drawer
+        title="电话跟进"
+        placement="bottom"
+        height="auto"
+        open={phoneFollowOpen}
+        onClose={() => setPhoneFollowOpen(false)}
+        destroyOnClose
+      >
+        {(() => {
+          const leadRow = leads[0];
+          const lid = leadRow?.id;
+          const storedLeadPhone = asTrimmedString(leadRow?.phone);
+          const needPhoneExtraDrawer =
+            !storedLeadPhone && !asTrimmedString(profile?.phone);
+          const effPhoneDrawer =
+            storedLeadPhone ||
+            phoneFollowPhoneExtra.trim() ||
+            asTrimmedString(profile?.phone);
+          const canPickPhoneDrawer = Boolean(effPhoneDrawer);
+          return (
+            <div className="space-y-4">
+              {!lid ? (
+                <p className="text-sm text-muted-foreground">
+                  当前客户暂无关联线索。请先在「线索」中维护或从 PC
+                  端建档后再完成跟进。
+                </p>
+              ) : (
+                <>
+                  {needPhoneExtraDrawer ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="phone-drawer-tel">手机号（无主档时填写）</Label>
+                      <AntInput
+                        id="phone-drawer-tel"
+                        value={phoneFollowPhoneExtra}
+                        onChange={(e) => setPhoneFollowPhoneExtra(e.target.value)}
+                        placeholder="用于电话跟进与生成任务"
+                        autoComplete="tel"
+                      />
+                    </div>
+                  ) : null}
+                  <div className="space-y-2">
+                    <Label>下次联系时间 *</Label>
+                    <DatePicker
+                      showTime
+                      value={phoneFollowNext}
+                      onChange={(v) => setPhoneFollowNext(v)}
+                      format="YYYY-MM-DD HH:mm"
+                      className="w-full"
+                      needConfirm={false}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>跟进方式</Label>
+                    <Radio.Group
+                      value={phoneFollowMethod}
+                      onChange={(e) =>
+                        setPhoneFollowMethod(e.target.value as "phone" | "wecom")
+                      }
+                    >
+                      <Radio.Button
+                        value="phone"
+                        disabled={!canPickPhoneDrawer}
+                      >
+                        电话
+                      </Radio.Button>
+                      <Radio.Button value="wecom">微信</Radio.Button>
+                    </Radio.Group>
+                  </div>
+                  {phoneFollowMethod === "phone" ? (
+                    <div className="space-y-2">
+                      <Label>通话时长（秒，选填）</Label>
+                      <InputNumber
+                        min={0}
+                        max={86400}
+                        value={phoneFollowCallSec ?? undefined}
+                        onChange={(v) =>
+                          setPhoneFollowCallSec(
+                            typeof v === "number" ? v : null
+                          )
+                        }
+                        placeholder="例如 180"
+                        className="w-full"
+                      />
+                    </div>
+                  ) : null}
+                  <div className="space-y-2">
+                    <Label>跟进备注</Label>
+                    <AntInput.TextArea
+                      value={phoneFollowRemark}
+                      onChange={(e) => setPhoneFollowRemark(e.target.value)}
+                      rows={4}
+                      placeholder="本次跟进说明"
+                    />
+                  </div>
+                  <Space direction="vertical" className="w-full" size="middle">
+                    <AntButton
+                      type="primary"
+                      block
+                      size="large"
+                      loading={phoneFollowSubmitting}
+                      onClick={() => void submitPhoneFollowComplete()}
+                    >
+                      保存并完成跟进
+                    </AntButton>
+                    <Link
+                      href={`/leads/${lid}/edit?entry=phone`}
+                      className="block text-center text-sm text-primary underline-offset-4 hover:underline"
+                    >
+                      打开完整编辑页
+                    </Link>
+                  </Space>
+                </>
+              )}
+            </div>
+          );
+        })()}
+      </Drawer>
     </div>
   );
 }

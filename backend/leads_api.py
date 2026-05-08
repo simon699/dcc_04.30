@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 
 from db import get_session
 from models import WecomLead, WecomLeadFollow, WecomTask, WecomTaskTarget
+from sync_lead_customer_phone import sync_customer_follow_phone_from_lead
+from time_util import format_iso_cn as _dt_iso, now_cn_naive, parse_iso_datetime_cn
 
 router = APIRouter()
 
@@ -45,7 +47,7 @@ def _maybe_refresh_task_done(sess: Session, task_id: int) -> None:
     if all_terminal and task.status not in ("done", "cancelled"):
         task.status = "done"
         if task.completed_at is None:
-            task.completed_at = datetime.now()
+            task.completed_at = now_cn_naive()
 
 
 def _target_matches_lead(tg: WecomTaskTarget, lead: WecomLead) -> bool:
@@ -62,7 +64,7 @@ def _complete_prior_follow_task_for_lead(
     completed_task_id: int | None,
 ) -> None:
     """线索再次跟进时，先将上一待办跟进任务视为完成；再写入本次跟进并生成新任务。"""
-    now = datetime.utcnow()
+    now = now_cn_naive()
 
     if completed_task_id is not None:
         task = sess.get(WecomTask, completed_task_id)
@@ -120,12 +122,6 @@ def _parse_date(d: str | None) -> date | None:
         return date.fromisoformat(str(d).strip()[:10])
     except ValueError:
         return None
-
-
-def _dt_iso(v: datetime | None) -> str | None:
-    if v is None:
-        return None
-    return v.isoformat()
 
 
 @router.get("/api/leads")
@@ -462,22 +458,13 @@ def add_lead_follow(lead_id: int, body: LeadFollowCreate) -> dict[str, Any]:
 
         fa = body.follow_at
         if fa:
-            try:
-                follow_at = datetime.fromisoformat(fa.replace("Z", "+00:00"))
-            except ValueError:
-                follow_at = datetime.utcnow()
+            follow_at = parse_iso_datetime_cn(fa)
+            if follow_at is None:
+                follow_at = now_cn_naive()
         else:
-            follow_at = datetime.utcnow()
+            follow_at = now_cn_naive()
 
-        def parse_opt_dt(s: str | None) -> datetime | None:
-            if not s or not str(s).strip():
-                return None
-            try:
-                return datetime.fromisoformat(str(s).replace("Z", "+00:00"))
-            except ValueError:
-                return None
-
-        nf = parse_opt_dt(body.next_follow_at)
+        nf = parse_iso_datetime_cn(body.next_follow_at)
 
         rec = WecomLeadFollow(
             lead_id=lead_id,
@@ -504,10 +491,10 @@ def _parse_required_next_follow(s: str) -> datetime:
     raw = str(s).strip()
     if not raw:
         raise HTTPException(status_code=400, detail="下次跟进时间为必填")
-    try:
-        return datetime.fromisoformat(raw.replace("Z", "+00:00").replace("+00:00", ""))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail="下次跟进时间格式无效") from e
+    dt = parse_iso_datetime_cn(raw)
+    if dt is None:
+        raise HTTPException(status_code=400, detail="下次跟进时间格式无效")
+    return dt
 
 
 def _deadline_end_of_that_day(dt: datetime) -> datetime:
@@ -614,7 +601,7 @@ def complete_lead_follow(lead_id: int, body: LeadCompleteFollowBody) -> dict[str
 
         follow_rec = WecomLeadFollow(
             lead_id=lead_id,
-            follow_at=datetime.utcnow(),
+            follow_at=now_cn_naive(),
             remark=remark_final,
             next_follow_at=nf,
             follow_method=method,
@@ -657,6 +644,14 @@ def complete_lead_follow(lead_id: int, body: LeadCompleteFollowBody) -> dict[str
                 status="pending",
             )
         )
+
+        owner_fu = (lead.owner_userid or DEFAULT_OWNER_USERID).strip()
+        if ext_now:
+            sync_customer_follow_phone_from_lead(
+                sess,
+                external_userid=ext_now,
+                follow_userid=owner_fu,
+            )
 
         sess.commit()
         sess.refresh(follow_rec)

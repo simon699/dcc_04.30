@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
 from typing import Any
 
 from sqlalchemy import func
@@ -13,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from db import get_session
 from models import WecomCustomerFollow, WecomExternalCustomer, WecomFollowUser
+from time_util import format_iso_cn, now_cn_naive
 from wecom_external_api import collect_all_customer_rows
 
 logger = logging.getLogger(__name__)
@@ -150,7 +150,7 @@ async def run_customer_sync() -> dict[str, Any]:
         return persist_rows(follow_userids, rows)
 
     stats = await asyncio.to_thread(_job)
-    stats["finished_at"] = datetime.utcnow().isoformat() + "Z"
+    stats["finished_at"] = format_iso_cn(now_cn_naive())
     return stats
 
 

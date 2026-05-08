@@ -2,6 +2,19 @@
 
 import * as React from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import {
+  Button as AntButton,
+  DatePicker,
+  Input as AntInput,
+  InputNumber,
+  Modal,
+  Radio,
+  Select,
+  Segmented,
+  Space,
+} from "antd";
+import dayjs, { type Dayjs } from "dayjs";
+import "dayjs/locale/zh-cn";
 import { toast } from "sonner";
 
 import {
@@ -11,31 +24,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { type LeadLevelGrade } from "@/lib/mock-data";
-import { cn, formatHttpApiDetail } from "@/lib/utils";
+import { formatHttpApiDetail } from "@/lib/utils";
+
+dayjs.locale("zh-cn");
 
 type Level = LeadLevelGrade;
-
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const TIME_HM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
 
 type CustomerOptionRow = {
   external_userid: string;
@@ -52,36 +47,6 @@ function inviteFromLatestRemark(
   return m?.[1] ?? "";
 }
 
-function splitLocalDateTime(iso: string): { date: string; time: string } {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return { date: "", time: "10:00" };
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  return { date: `${y}-${m}-${day}`, time: `${hh}:${mm}` };
-}
-
-function defaultNextFollowParts(): { date: string; time: string } {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  d.setHours(10, 0, 0, 0);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return { date: `${y}-${m}-${day}`, time: "10:00" };
-}
-
-function buildNextFollowIso(dateRaw: string, timeRaw: string): string {
-  const date = dateRaw.trim();
-  const time = timeRaw.trim() || "10:00";
-  const [hh = "10", mm = "00"] = time.split(":");
-  const h = hh.padStart(2, "0").slice(-2);
-  const mi = mm.padStart(2, "0").slice(-2);
-  return `${date}T${h}:${mi}:00`;
-}
-
 export default function LeadEditPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -94,20 +59,16 @@ export default function LeadEditPage() {
   const [loadError, setLoadError] = React.useState<string | null>(null);
 
   const [intentModel, setIntentModel] = React.useState("");
-  const [nextFollowDate, setNextFollowDate] = React.useState("");
-  const [nextFollowTime, setNextFollowTime] = React.useState("10:00");
-  const [inviteDate, setInviteDate] = React.useState("");
+  const [nextFollowAt, setNextFollowAt] = React.useState<Dayjs | null>(null);
+  const [inviteStoreDay, setInviteStoreDay] = React.useState<Dayjs | null>(null);
   const [level, setLevel] = React.useState<Level>("B级");
   const [note, setNote] = React.useState("");
   const [nextFollowMethod, setNextFollowMethod] = React.useState<"phone" | "wecom">(
     "phone"
   );
-  /** 线索无主档手机号时，保存跟进前可在此填写 */
   const [phoneSupplement, setPhoneSupplement] = React.useState("");
-  /** 电话跟进时可选，单位：秒 */
-  const [callDurationSec, setCallDurationSec] = React.useState("");
+  const [callDurationSec, setCallDurationSec] = React.useState<number | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
-  /** 未加微时：用户选择的企微客户 */
   const [linkExternalUserid, setLinkExternalUserid] = React.useState("");
   const [linkCustomerLabel, setLinkCustomerLabel] = React.useState("");
   const [customerPickerOpen, setCustomerPickerOpen] = React.useState(false);
@@ -148,20 +109,19 @@ export default function LeadEditPage() {
         }
         setNote("");
         setPhoneSupplement("");
-        setCallDurationSec("");
+        setCallDurationSec(null);
         const sp = (d.phone ?? "").trim();
         const ext = (d.external_userid ?? "").trim();
         setNextFollowMethod(sp ? "phone" : ext ? "wecom" : "wecom");
         if (d.next_follow_up_at) {
-          const parts = splitLocalDateTime(d.next_follow_up_at);
-          setNextFollowDate(parts.date);
-          setNextFollowTime(parts.time);
+          const nx = dayjs(d.next_follow_up_at);
+          setNextFollowAt(nx.isValid() ? nx : dayjs().add(1, "day").hour(10).minute(0).second(0));
         } else {
-          const def = defaultNextFollowParts();
-          setNextFollowDate(def.date);
-          setNextFollowTime(def.time);
+          setNextFollowAt(dayjs().add(1, "day").hour(10).minute(0).second(0));
         }
-        setInviteDate(inviteFromLatestRemark(d.follows));
+        const invStr = inviteFromLatestRemark(d.follows);
+        const invParsed = invStr ? dayjs(invStr, "YYYY-MM-DD", true) : null;
+        setInviteStoreDay(invParsed?.isValid() ? invParsed : null);
         setLinkExternalUserid("");
         setLinkCustomerLabel("");
       })
@@ -187,17 +147,11 @@ export default function LeadEditPage() {
 
   const saveBlockedReason = React.useMemo(() => {
     if (!data) return "线索未加载";
-    const d = nextFollowDate.trim();
-    const t = nextFollowTime.trim();
-    if (!d || !ISO_DATE_RE.test(d)) {
-      return "请填写有效的跟进日期（YYYY-MM-DD）";
+    if (!nextFollowAt || !nextFollowAt.isValid()) {
+      return "请选择有效的下次跟进时间";
     }
-    if (!t || !TIME_HM_RE.test(t)) {
-      return "请填写有效时间（HH:mm，24 小时制）";
-    }
-    const inv = inviteDate.trim();
-    if (inv && !ISO_DATE_RE.test(inv)) {
-      return "邀约到店须为 YYYY-MM-DD 或清空";
+    if (inviteStoreDay != null && !inviteStoreDay.isValid()) {
+      return "邀约到店日期无效，请清空或重选";
     }
     if (!effectivePhone && !effectiveExternalUserid) {
       return "须填写手机号或关联企微客户后才能保存并完成跟进";
@@ -208,9 +162,8 @@ export default function LeadEditPage() {
     return null;
   }, [
     data,
-    nextFollowDate,
-    nextFollowTime,
-    inviteDate,
+    nextFollowAt,
+    inviteStoreDay,
     effectivePhone,
     effectiveExternalUserid,
     nextFollowMethod,
@@ -265,19 +218,17 @@ export default function LeadEditPage() {
       toast.error(saveBlockedReason);
       return;
     }
-    const nextIso = buildNextFollowIso(nextFollowDate, nextFollowTime);
+    if (!nextFollowAt?.isValid()) {
+      toast.error("请选择下次跟进时间");
+      return;
+    }
     if (nextFollowMethod === "phone" && !canUsePhoneFollow) {
       toast.error("电话跟进请先在客户信息中填写手机号");
       return;
     }
     let callDurationSeconds: number | undefined;
-    if (nextFollowMethod === "phone" && callDurationSec.trim()) {
-      const n = parseInt(callDurationSec.trim(), 10);
-      if (Number.isNaN(n) || n < 0) {
-        toast.error("通话时长须为有效的非负整数（秒）");
-        return;
-      }
-      callDurationSeconds = n;
+    if (nextFollowMethod === "phone" && callDurationSec != null && callDurationSec >= 0) {
+      callDurationSeconds = Math.floor(callDurationSec);
     }
     setSubmitting(true);
     try {
@@ -285,8 +236,9 @@ export default function LeadEditPage() {
         intent_model: intentModel.trim() || null,
         customer_level: level,
         remark: note.trim() || null,
-        invite_store_at: inviteDate.trim() || null,
-        next_follow_at: nextIso,
+        invite_store_at:
+          inviteStoreDay?.isValid() ? inviteStoreDay.format("YYYY-MM-DD") : null,
+        next_follow_at: nextFollowAt.format("YYYY-MM-DDTHH:mm:00"),
         next_follow_method: nextFollowMethod,
       };
       if (!hasWecomOnLead && linkExternalUserid.trim()) {
@@ -391,12 +343,13 @@ export default function LeadEditPage() {
           {!storedPhoneStr ? (
             <div className="space-y-2 pt-1">
               <Label htmlFor="phoneSupplement">手机号</Label>
-              <Input
+              <AntInput
                 id="phoneSupplement"
                 value={phoneSupplement}
                 onChange={(e) => setPhoneSupplement(e.target.value)}
                 placeholder="无主档手机号时可填写，提交跟进时将写入线索"
                 autoComplete="tel"
+                className="max-w-md"
               />
               <p className="text-xs text-muted-foreground">
                 填写后方可选择「电话」跟进方式，并用于生成电话任务。
@@ -409,11 +362,8 @@ export default function LeadEditPage() {
               <p className="text-xs text-muted-foreground">
                 从客户库选择外部联系人，提交「保存并完成跟进」时将写入线索并完成关联；任务对象将使用企微 ID。
               </p>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
+              <Space wrap>
+                <AntButton
                   onClick={() => {
                     setCustomerPickerOpen(true);
                     void loadCustomerOptions();
@@ -422,21 +372,19 @@ export default function LeadEditPage() {
                   {linkCustomerLabel.trim()
                     ? `已选：${linkCustomerLabel.trim()}`
                     : "选择客户…"}
-                </Button>
+                </AntButton>
                 {linkExternalUserid.trim() ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
+                  <AntButton
+                    type="link"
                     onClick={() => {
                       setLinkExternalUserid("");
                       setLinkCustomerLabel("");
                     }}
                   >
                     清除关联
-                  </Button>
+                  </AntButton>
                 ) : null}
-              </div>
+              </Space>
             </div>
           ) : null}
         </CardContent>
@@ -450,34 +398,25 @@ export default function LeadEditPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="intentModel">意向车型</Label>
-              <Input
+              <AntInput
                 id="intentModel"
                 value={intentModel}
                 onChange={(e) => setIntentModel(e.target.value)}
+                className="w-full max-w-md"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="inviteDate">邀约到店日期（选填）</Label>
-              <div className="flex flex-wrap items-center gap-2">
-                <Input
-                  id="inviteDate"
-                  value={inviteDate}
-                  onChange={(e) => setInviteDate(e.target.value)}
-                  placeholder="YYYY-MM-DD，留空表示无"
-                  autoComplete="off"
-                  className="min-w-[11rem] flex-1 font-mono text-sm"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setInviteDate("")}
-                >
-                  清空
-                </Button>
-              </div>
+              <Label>邀约到店日期（选填）</Label>
+              <DatePicker
+                value={inviteStoreDay}
+                onChange={(v) => setInviteStoreDay(v)}
+                format="YYYY-MM-DD"
+                allowClear
+                className="w-full max-w-xs"
+                placeholder="选择日期"
+              />
               <p className="text-xs text-muted-foreground">
-                文本输入，可随时清空；不再使用浏览器原生日期控件。
+                使用 Ant Design 日期选择器，支持一键清空。
               </p>
             </div>
           </div>
@@ -487,78 +426,32 @@ export default function LeadEditPage() {
               <Label>
                 下次跟进时间 <span className="text-destructive">*</span>
               </Label>
-              <div className="flex flex-wrap items-end gap-2">
-                <div className="min-w-[10rem] flex-1 space-y-1">
-                  <span className="text-xs text-muted-foreground">日期</span>
-                  <Input
-                    id="nextFollowDate"
-                    value={nextFollowDate}
-                    onChange={(e) => setNextFollowDate(e.target.value)}
-                    placeholder="YYYY-MM-DD"
-                    autoComplete="off"
-                    className="font-mono text-sm"
-                  />
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                  onClick={() => setNextFollowDate("")}
-                >
-                  清空日期
-                </Button>
-                <div className="min-w-[6rem] space-y-1">
-                  <span className="text-xs text-muted-foreground">时间</span>
-                  <Input
-                    id="nextFollowTime"
-                    value={nextFollowTime}
-                    onChange={(e) => setNextFollowTime(e.target.value)}
-                    placeholder="10:00"
-                    autoComplete="off"
-                    className="font-mono text-sm"
-                  />
-                </div>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  className="shrink-0"
-                  onClick={() => setNextFollowTime("10:00")}
-                >
-                  默认 10:00
-                </Button>
-              </div>
+              <DatePicker
+                showTime
+                value={nextFollowAt}
+                onChange={(v) => setNextFollowAt(v)}
+                format="YYYY-MM-DD HH:mm"
+                allowClear={false}
+                className="w-full max-w-xs"
+                needConfirm={false}
+              />
               <p className="text-xs text-muted-foreground">
-                日期与时间分开填写，均可单独清空后重填；提交时组合为本地时间的跟进时点。
+                日期 + 时间一体化选择（Ant Design）。
               </p>
             </div>
             <div className="space-y-2">
               <Label>下次跟进方式</Label>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={nextFollowMethod === "phone" ? "default" : "outline"}
-                  onClick={() => setNextFollowMethod("phone")}
-                  disabled={!canUsePhoneFollow}
-                  title={
-                    !canUsePhoneFollow ? "请先填写客户手机号后再选择电话跟进" : undefined
-                  }
-                  className={cn(nextFollowMethod !== "phone" && "border-dashed")}
-                >
+              <Radio.Group
+                value={nextFollowMethod}
+                onChange={(e) =>
+                  setNextFollowMethod(e.target.value as "phone" | "wecom")
+                }
+              >
+                <Radio.Button value="phone" disabled={!canUsePhoneFollow}>
                   电话
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={nextFollowMethod === "wecom" ? "default" : "outline"}
-                  onClick={() => setNextFollowMethod("wecom")}
-                  className={cn(nextFollowMethod !== "wecom" && "border-dashed")}
-                >
-                  微信
-                </Button>
-              </div>
+                </Radio.Button>
+                <Radio.Button value="wecom">微信</Radio.Button>
+              </Radio.Group>
               <p className="text-xs text-muted-foreground">
                 将写入跟进表，并用于生成任务的触达方式（电话 / 企微）。
               </p>
@@ -573,14 +466,14 @@ export default function LeadEditPage() {
           {nextFollowMethod === "phone" ? (
             <div className="space-y-2">
               <Label htmlFor="callDurationSec">本次通话时长（秒，选填）</Label>
-              <Input
+              <InputNumber
                 id="callDurationSec"
-                inputMode="numeric"
-                value={callDurationSec}
-                onChange={(e) =>
-                  setCallDurationSec(e.target.value.replace(/\D/g, ""))
-                }
+                min={0}
+                max={86400}
+                value={callDurationSec ?? undefined}
+                onChange={(v) => setCallDurationSec(typeof v === "number" ? v : null)}
                 placeholder="例如 180"
+                className="max-w-xs"
               />
               <p className="text-xs text-muted-foreground">
                 将写入跟进记录并展示在工作台「通话记录」中。
@@ -590,29 +483,22 @@ export default function LeadEditPage() {
 
           <div className="space-y-2">
             <Label>客户等级</Label>
-            <div className="flex flex-wrap gap-2">
-              {(["H级", "A级", "B级", "C级", "N级"] as Level[]).map((lv) => (
-                <Button
-                  key={lv}
-                  type="button"
-                  size="sm"
-                  variant={level === lv ? "default" : "outline"}
-                  onClick={() => setLevel(lv)}
-                >
-                  {lv}
-                </Button>
-              ))}
-            </div>
+            <Segmented<Level>
+              options={["H级", "A级", "B级", "C级", "N级"]}
+              value={level}
+              onChange={(v) => setLevel(v)}
+            />
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="note">备注信息</Label>
-            <Textarea
+            <AntInput.TextArea
               id="note"
               value={note}
               onChange={(e) => setNote(e.target.value)}
               rows={4}
               placeholder="本次跟进内容（写入跟进记录备注）"
+              className="max-w-2xl"
             />
           </div>
 
@@ -622,61 +508,54 @@ export default function LeadEditPage() {
                 按钮不可用原因：{saveBlockedReason}
               </p>
             ) : null}
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="outline" onClick={() => router.push("/leads")}>
-                返回线索库
-              </Button>
-              <Button
+            <Space wrap>
+              <AntButton onClick={() => router.push("/leads")}>返回线索库</AntButton>
+              <AntButton
+                type="primary"
                 disabled={submitting || Boolean(saveBlockedReason)}
                 title={saveBlockedReason ?? undefined}
+                loading={submitting}
                 onClick={() => void submitCompleteFollow()}
               >
-                {submitting ? "提交中…" : "保存并完成跟进"}
-              </Button>
-            </div>
+                保存并完成跟进
+              </AntButton>
+            </Space>
           </div>
         </CardContent>
       </Card>
 
-      <Dialog open={customerPickerOpen} onOpenChange={setCustomerPickerOpen}>
-        <DialogContent className="gap-0 sm:max-w-lg" showCloseButton>
-          <DialogHeader>
-            <DialogTitle>选择企微客户</DialogTitle>
-            <DialogDescription>
-              按昵称、备注或外部联系人 ID 搜索；选定后将关联到当前线索。
-            </DialogDescription>
-          </DialogHeader>
-          <Command className="border border-border/60">
-            <CommandInput placeholder="搜索…" />
-            <CommandList>
-              {loadingCustomerOptions ? (
-                <CommandEmpty>加载中…</CommandEmpty>
-              ) : customerOptions.length === 0 ? (
-                <CommandEmpty>暂无客户或未加载成功</CommandEmpty>
-              ) : (
-                <CommandGroup heading="客户">
-                  {customerOptions.map((o) => (
-                    <CommandItem
-                      key={o.external_userid}
-                      value={`${o.label} ${o.external_userid} ${o.phone ?? ""}`}
-                      onSelect={() => {
-                        setLinkExternalUserid(o.external_userid);
-                        setLinkCustomerLabel(o.label);
-                        setCustomerPickerOpen(false);
-                      }}
-                    >
-                      <span className="truncate">{o.label}</span>
-                      <span className="ml-2 truncate font-mono text-xs text-muted-foreground">
-                        {o.external_userid}
-                      </span>
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              )}
-            </CommandList>
-          </Command>
-        </DialogContent>
-      </Dialog>
+      <Modal
+        title="选择企微客户"
+        open={customerPickerOpen}
+        onCancel={() => setCustomerPickerOpen(false)}
+        footer={null}
+        destroyOnClose
+      >
+        <p className="mb-3 text-sm text-muted-foreground">
+          搜索昵称、备注或外部联系人 ID；选定后将关联到当前线索。
+        </p>
+        <Select
+          showSearch
+          allowClear
+          loading={loadingCustomerOptions}
+          placeholder="请选择客户"
+          style={{ width: "100%" }}
+          options={customerOptions.map((o) => ({
+            value: o.external_userid,
+            label: `${o.label} (${o.external_userid})`,
+          }))}
+          filterOption={(input, option) =>
+            (option?.label ?? "").toLowerCase().includes(input.toLowerCase())
+          }
+          onChange={(v) => {
+            if (!v) return;
+            const o = customerOptions.find((x) => x.external_userid === v);
+            setLinkExternalUserid(v);
+            setLinkCustomerLabel(o?.label ?? v);
+            setCustomerPickerOpen(false);
+          }}
+        />
+      </Modal>
     </div>
   );
 }

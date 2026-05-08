@@ -21,12 +21,8 @@ from models import (
     WecomTask,
     WecomTaskTarget,
 )
-
-
-def _dt_iso(v: datetime | None) -> str | None:
-    if v is None:
-        return None
-    return v.isoformat()
+from sync_lead_customer_phone import sync_customer_follow_phone_from_lead
+from time_util import format_iso_cn as _dt_iso
 
 router = APIRouter()
 
@@ -265,6 +261,15 @@ def customer_profile(
                 WecomExternalCustomer.external_userid == ext,
             )
         ).first()
+
+        if follow:
+            sync_customer_follow_phone_from_lead(
+                sess,
+                external_userid=ext,
+                follow_userid=fu,
+            )
+            sess.commit()
+            sess.refresh(follow)
 
         display_name = ""
         if ec and (ec.name or "").strip():

@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { ExternalLink, MessageCircle, Phone } from "lucide-react";
 import { toast } from "sonner";
 
@@ -32,6 +33,7 @@ import { WecomCustomerProfileClient } from "@/app/(dashboard)/wecom/customer-pro
 import { CustomerCenterDrawerPanel } from "@/components/customers/customer-center-drawer-panel";
 
 export function DetailDrawer() {
+  const router = useRouter();
   const drawerOpen = useUiStore((s) => s.drawerOpen);
   const drawerPayload = useUiStore((s) => s.drawerPayload);
   const closeDrawer = useUiStore((s) => s.closeDrawer);
@@ -356,6 +358,12 @@ export function DetailDrawer() {
                         buttonVariants(),
                         "w-full justify-start gap-2"
                       )}
+                      onClick={() => {
+                        const ph = (displayLead?.phone ?? "").replace(/\s/g, "");
+                        if (ph && leadId && /^\d+$/.test(String(leadId))) {
+                          router.push(`/leads/${leadId}/edit?entry=phone`);
+                        }
+                      }}
                     >
                       <Phone className="size-4" />
                       拨打电话

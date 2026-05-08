@@ -1,10 +1,14 @@
 "use client";
 
 import * as React from "react";
+import { Megaphone } from "lucide-react";
+import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { copyPlainText } from "@/lib/copy-to-clipboard";
+import { shareMassSendTextToExternalContacts } from "@/lib/wecom-mass-send";
 
 export type ApiTaskDetail = {
   id: string;
@@ -89,6 +93,7 @@ export function TaskDetailPanel({
   const [data, setData] = React.useState<ApiTaskDetail | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [err, setErr] = React.useState<string | null>(null);
+  const [massSendBusy, setMassSendBusy] = React.useState(false);
 
   const load = React.useCallback(() => {
     setLoading(true);
@@ -114,8 +119,31 @@ export function TaskDetailPanel({
   }, [taskId]);
 
   React.useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 初始/切换任务时拉取详情
     load();
   }, [load]);
+
+  const preferredExternalUserid = React.useMemo(() => {
+    if (!data) return "";
+    if (highlightTargetId) {
+      const tg = data.targets.find((x) => String(x.id) === highlightTargetId);
+      return (tg?.target_external_userid ?? "").trim();
+    }
+    const hit = data.targets.find((x) =>
+      (x.target_external_userid ?? "").trim()
+    );
+    return (hit?.target_external_userid ?? "").trim();
+  }, [data, highlightTargetId]);
+
+  const massPlain = React.useMemo(
+    () => (data?.mass_content ?? "").trim(),
+    [data]
+  );
+
+  const sortedTargets = React.useMemo(() => {
+    if (!data?.targets?.length) return [];
+    return [...data.targets].sort((a, b) => a.id - b.id);
+  }, [data]);
 
   if (loading) {
     return <p className="text-sm text-muted-foreground">加载任务…</p>;
@@ -132,8 +160,6 @@ export function TaskDetailPanel({
     );
   }
 
-  const sortedTargets = [...data.targets].sort((a, b) => a.id - b.id);
-
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -149,10 +175,73 @@ export function TaskDetailPanel({
         ) : null}
       </div>
 
-      {data.task_type === "mass_send" && data.mass_content ? (
+      {data.task_type === "mass_send" ? (
         <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-sm">
           <p className="text-xs text-muted-foreground">群发内容</p>
-          <p className="mt-1 whitespace-pre-wrap">{data.mass_content}</p>
+          <p className="mt-1 whitespace-pre-wrap">
+            {massPlain || "（未配置群发正文）"}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!massPlain}
+              onClick={async () => {
+                const ok = await copyPlainText(massPlain);
+                toast[ok ? "success" : "error"](
+                  ok ? "已复制到剪贴板，可自行粘贴发送" : "复制失败"
+                );
+              }}
+            >
+              复制内容
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={
+                massSendBusy ||
+                !massPlain ||
+                !preferredExternalUserid ||
+                data.channel !== "wecom"
+              }
+              title={
+                data.channel !== "wecom"
+                  ? "非企微渠道任务请使用复制后自行触达"
+                  : !preferredExternalUserid
+                    ? "任务对象缺少 external_userid，无法调起客户端群发"
+                    : "企业微信内使用 JS-SDK shareToExternalContact（官方文档 93555）"
+              }
+              onClick={() => {
+                void (async () => {
+                  setMassSendBusy(true);
+                  try {
+                    const r = await shareMassSendTextToExternalContacts({
+                      content: massPlain,
+                      externalUserIds: [preferredExternalUserid],
+                    });
+                    if (!r.ok) {
+                      toast.error(r.message ?? "发起群发失败");
+                      return;
+                    }
+                    toast.success(
+                      "已调起群发助手，请在企业微信客户端内确认发送"
+                    );
+                  } finally {
+                    setMassSendBusy(false);
+                  }
+                })();
+              }}
+            >
+              <Megaphone className="mr-1 size-3.5" />
+              {massSendBusy ? "调用中…" : "发起群发"}
+            </Button>
+          </div>
+          {!preferredExternalUserid ? (
+            <p className="mt-2 text-xs text-amber-700 dark:text-amber-500">
+              当前任务对象无企微 external_userid，仅可复制正文后手动发送。
+            </p>
+          ) : null}
         </div>
       ) : null}
 

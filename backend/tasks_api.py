@@ -12,6 +12,7 @@ from sqlalchemy import asc, desc, or_, select, func as sql_func
 from sqlalchemy.orm import Session, selectinload
 
 from db import get_session
+from time_util import format_iso_cn as _dt_iso, now_cn_naive, parse_iso_datetime_cn
 from models import (
     WecomCustomerFollow,
     WecomExternalCustomer,
@@ -35,19 +36,8 @@ def _require_mysql() -> None:
         raise HTTPException(status_code=503, detail="未配置 MYSQL_URL")
 
 
-def _dt_iso(v: datetime | None) -> str | None:
-    if v is None:
-        return None
-    return v.isoformat()
-
-
 def _parse_iso_dt(s: str | None) -> datetime | None:
-    if not s or not str(s).strip():
-        return None
-    try:
-        return datetime.fromisoformat(str(s).replace("Z", "+00:00").replace("+00:00", ""))
-    except ValueError:
-        return None
+    return parse_iso_datetime_cn(s)
 
 
 def _serialize_target(row: WecomTaskTarget) -> dict[str, Any]:
@@ -148,7 +138,7 @@ def _maybe_refresh_task_done(sess: Session, task_id: int) -> None:
     if all_terminal and task.status not in ("done", "cancelled"):
         task.status = "done"
         if task.completed_at is None:
-            task.completed_at = datetime.now()
+            task.completed_at = now_cn_naive()
 
 
 @router.get("/api/task-rows")

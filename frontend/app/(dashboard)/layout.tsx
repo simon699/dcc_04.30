@@ -1,3 +1,4 @@
+import { AntdProvider } from "@/components/antd-provider";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 
 export default function DashboardLayout({
@@ -5,5 +6,9 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return <DashboardShell>{children}</DashboardShell>;
+  return (
+    <AntdProvider>
+      <DashboardShell>{children}</DashboardShell>
+    </AntdProvider>
+  );
 }
