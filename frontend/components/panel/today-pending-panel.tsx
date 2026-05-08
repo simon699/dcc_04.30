@@ -557,7 +557,7 @@ export function TodayPendingPanel() {
               今日电话跟进记录
             </SheetTitle>
             <SheetDescription>
-              今日已保存的电话跟进（线索编辑页提交，并可填写通话时长）
+              今日已保存的电话跟进（线索跟进页提交，并可填写通话时长）
             </SheetDescription>
           </SheetHeader>
           <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-2">

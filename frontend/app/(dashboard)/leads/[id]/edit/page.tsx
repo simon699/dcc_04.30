@@ -199,7 +199,7 @@ export default function LeadEditPage() {
       toast.message(`已进入电话跟进模式：${displayName}`);
     }
     if (entry === "edit") {
-      toast.message(`已进入编辑模式：${displayName}`);
+      toast.message(`已进入跟进模式：${displayName}`);
     }
   }, [entry, data, displayName]);
 
@@ -275,7 +275,7 @@ export default function LeadEditPage() {
   if (loading) {
     return (
       <div className="space-y-3">
-        <h1 className="text-2xl font-semibold tracking-tight">编辑线索</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">跟进线索</h1>
         <p className="text-sm text-muted-foreground">加载中…</p>
       </div>
     );
@@ -284,7 +284,7 @@ export default function LeadEditPage() {
   if (loadError || !data) {
     return (
       <div className="space-y-3">
-        <h1 className="text-2xl font-semibold tracking-tight">编辑线索</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">跟进线索</h1>
         <p className="text-sm text-muted-foreground">{loadError ?? "未找到该线索。"}</p>
         <Button variant="outline" onClick={() => router.push("/leads")}>
           返回线索库
@@ -297,7 +297,7 @@ export default function LeadEditPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">编辑线索</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">跟进线索</h1>
           <p className="mt-1 text-muted-foreground">
             保存后将写入跟进记录，并按下次跟进时间与方式生成一条任务（截止为该日 23:59）。
           </p>

@@ -272,7 +272,7 @@ export function LeadDrawerPanel({ leadId }: { leadId: string }) {
                 router.push(`/leads/${data.id}/edit?entry=edit`);
               }}
             >
-              编辑线索
+              跟进线索
             </Button>
             <Button size="sm" variant="outline" onClick={() => setAssignOpen(true)}>
               分配线索

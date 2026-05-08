@@ -339,7 +339,7 @@ export function TaskDetailPanel({
                         href={`/leads/${(t.target_lead_id ?? "").trim()}/edit?entry=phone`}
                         className="text-xs font-medium text-primary underline-offset-4 hover:underline"
                       >
-                        进入线索编辑（电话跟进）
+                        进入线索跟进（电话）
                       </Link>
                     </div>
                   ) : null}
