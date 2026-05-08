@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func as sql_func, select
+from sqlalchemy import func as sql_func, or_, select
 from sqlalchemy.orm import Session
 
 from db import get_session
@@ -29,6 +29,24 @@ def _dt_iso(v: datetime | None) -> str | None:
     return v.isoformat()
 
 router = APIRouter()
+
+
+def _task_channel_label(ch: str | None) -> str:
+    x = (ch or "").strip().lower()
+    if x == "phone":
+        return "电话"
+    if x == "wecom":
+        return "企微"
+    return ch or "—"
+
+
+def _task_type_label(tt: str | None) -> str:
+    x = (tt or "").strip().lower()
+    if x == "mass_send":
+        return "群发"
+    if x == "follow_up":
+        return "跟进"
+    return tt or "—"
 
 
 def _require_mysql() -> None:
@@ -237,7 +255,7 @@ def customer_timeline(
     external_userid: str = Query(...),
     limit: int = Query(50, ge=1, le=200),
 ) -> dict[str, Any]:
-    """客户轨迹：线索跟进记录 + 任务对象节点（简要）。"""
+    """客户轨迹：线索跟进、任务创建、任务完成等。"""
     _require_mysql()
     ext = external_userid.strip()
     if not ext:
@@ -251,43 +269,87 @@ def customer_timeline(
             select(WecomLead).where(WecomLead.external_userid == ext)
         ).all()
         lead_ids = [r.id for r in lead_rows]
+        phones = list(
+            {
+                (r.phone or "").strip()
+                for r in lead_rows
+                if (r.phone or "").strip()
+            }
+        )
+
         if lead_ids:
             follows = sess.scalars(
                 select(WecomLeadFollow)
                 .where(WecomLeadFollow.lead_id.in_(lead_ids))
                 .order_by(WecomLeadFollow.follow_at.desc())
-                .limit(limit)
+                .limit(limit * 3)
             ).all()
             for f in follows:
+                rm = (f.remark or "").strip()
                 events.append(
                     {
                         "at": _dt_iso(f.follow_at),
                         "kind": "lead_follow",
                         "title": "线索跟进",
-                        "detail": f.remark or "",
+                        "detail": rm,
+                        "remark": rm,
+                        "next_follow_at": _dt_iso(f.next_follow_at),
+                        "follow_method": f.follow_method,
                         "lead_id": str(f.lead_id),
                     }
                 )
 
+        tgt_conds: list[Any] = [WecomTaskTarget.target_external_userid == ext]
+        for ph in phones:
+            tgt_conds.append(WecomTaskTarget.target_phone == ph)
+        tgt_where = or_(*tgt_conds)
+
         tgt_rows = sess.execute(
             select(WecomTaskTarget, WecomTask)
             .join(WecomTask, WecomTaskTarget.task_id == WecomTask.id)
-            .where(WecomTaskTarget.target_external_userid == ext)
-            .order_by(WecomTask.id.desc())
-            .limit(limit)
+            .where(tgt_where)
+            .order_by(WecomTask.created_at.desc())
+            .limit(limit * 8)
         ).all()
+
+        seen_task_created: set[int] = set()
         for tg, task in tgt_rows:
-            t_at = tg.completed_at or tg.started_at or task.created_at
-            events.append(
-                {
-                    "at": _dt_iso(t_at),
-                    "kind": "task_target",
-                    "title": task.name,
-                    "detail": f"对象状态：{tg.status}",
-                    "task_id": str(task.id),
-                    "target_status": tg.status,
-                }
-            )
+            tid = int(task.id)
+            if tid not in seen_task_created:
+                seen_task_created.add(tid)
+                dl = _dt_iso(task.deadline)
+                events.append(
+                    {
+                        "at": _dt_iso(task.created_at),
+                        "kind": "task_created",
+                        "title": f"创建任务 · {task.name}",
+                        "detail": (
+                            f"{_task_type_label(task.task_type)} · "
+                            f"{_task_channel_label(task.channel)}"
+                            + (f" · 截止 {dl}" if dl else "")
+                        ),
+                        "task_id": str(task.id),
+                        "task_name": task.name,
+                        "task_deadline": dl,
+                        "channel": task.channel,
+                        "task_type": task.task_type,
+                    }
+                )
+
+            if tg.status == "done" and tg.completed_at:
+                tr = (tg.remark or "").strip()
+                events.append(
+                    {
+                        "at": _dt_iso(tg.completed_at),
+                        "kind": "task_completed",
+                        "title": f"完成任务 · {task.name}",
+                        "detail": tr or "对象已完成",
+                        "task_id": str(task.id),
+                        "task_name": task.name,
+                        "target_remark": tr or None,
+                        "channel": task.channel,
+                    }
+                )
 
         events.sort(key=lambda x: x.get("at") or "", reverse=True)
         return {"items": events[:limit]}

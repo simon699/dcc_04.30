@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { getCurExternalContact, register, env as wecomEnv } from "@wecom/jssdk";
-import { MessageCircle, Phone, UserRound } from "lucide-react";
+import { getCurExternalContact, register } from "@wecom/jssdk";
+import { Phone, UserRound } from "lucide-react";
 import { toast } from "sonner";
 
 import type { CustomerProfileApi } from "@/components/customers/customer-center-drawer-panel";
@@ -30,8 +30,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { ApiLeadDetail } from "@/components/leads/lead-drawer-panel";
 import { useUiStore } from "@/lib/store/ui-store";
-import { tryOpenWecomExternalUserChat } from "@/lib/wecom-open-chat";
 import {
   asTrimmedString,
   cn,
@@ -53,6 +53,14 @@ type TimelineEvent = {
   lead_id?: string;
   task_id?: string;
   target_status?: string;
+  remark?: string;
+  next_follow_at?: string | null;
+  follow_method?: string | null;
+  task_name?: string | null;
+  task_deadline?: string | null;
+  channel?: string | null;
+  task_type?: string | null;
+  target_remark?: string | null;
 };
 
 type LeadRow = {
@@ -163,6 +171,42 @@ function channelShort(ch: string): string {
   return ch;
 }
 
+function followMethodCn(m?: string | null): string {
+  const x = (m ?? "").trim().toLowerCase();
+  if (x === "phone") return "电话";
+  if (x === "wecom") return "微信";
+  return (m ?? "").trim() || "—";
+}
+
+function timelineKindBadge(kind: string) {
+  if (kind === "lead_follow") {
+    return (
+      <Badge variant="outline" className="ml-2 font-normal">
+        线索跟进
+      </Badge>
+    );
+  }
+  if (kind === "task_created") {
+    return (
+      <Badge variant="secondary" className="ml-2 font-normal">
+        创建任务
+      </Badge>
+    );
+  }
+  if (kind === "task_completed") {
+    return (
+      <Badge className="ml-2 border-emerald-600/40 bg-emerald-600/10 font-normal text-emerald-800 dark:text-emerald-200">
+        任务完成
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="ml-2 font-normal">
+      {kind}
+    </Badge>
+  );
+}
+
 function resolveLeadIdForTask(row: ApiTaskRow, list: LeadRow[]): string | null {
   const ext = asTrimmedString(row.target.target_external_userid);
   const phRaw = asTrimmedString(row.target.target_phone).replace(/\s/g, "");
@@ -203,7 +247,6 @@ export function WecomCustomerProfileClient({
   const fu = asTrimmedString(followUserid ?? DEFAULT_FOLLOW_USERID);
 
   const openDrawer = useUiStore((s) => s.openDrawer);
-  const [openingWecom, setOpeningWecom] = React.useState(false);
 
   const [externalContact, setExternalContact] = React.useState<ExternalContactSdkState>(() => {
     if (!corpId.trim() || !agentId.trim()) {
@@ -407,6 +450,12 @@ export function WecomCustomerProfileClient({
   const [followCallSec, setFollowCallSec] = React.useState("");
   const [followSubmitting, setFollowSubmitting] = React.useState(false);
 
+  const [taskListScope, setTaskListScope] = React.useState<"open" | "all">(
+    "open"
+  );
+  const [leadDetail, setLeadDetail] = React.useState<ApiLeadDetail | null>(null);
+  const [loadingLeadDetail, setLoadingLeadDetail] = React.useState(false);
+
   const openTaskSheet = React.useCallback((row: ApiTaskRow) => {
     setTaskSheetRow(row);
     setTaskSheetStep("detail");
@@ -554,6 +603,47 @@ export function WecomCustomerProfileClient({
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [extUserId, loadTimeline, loadLeads, loadTasks]);
 
+  React.useEffect(() => {
+    const first = leads[0];
+    if (!first?.id) {
+      setLeadDetail(null);
+      return;
+    }
+    let cancelled = false;
+    setLoadingLeadDetail(true);
+    fetch(`/api/leads/${encodeURIComponent(first.id)}`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(await r.text());
+        return r.json() as Promise<ApiLeadDetail>;
+      })
+      .then((d) => {
+        if (!cancelled) setLeadDetail(d);
+      })
+      .catch(() => {
+        if (!cancelled) setLeadDetail(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingLeadDetail(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [leads]);
+
+  const scopedTasks = React.useMemo(() => {
+    if (taskListScope === "all") return tasks;
+    return tasks.filter((row) => {
+      const t = row.task;
+      const tg = row.target;
+      return (
+        t.status !== "done" &&
+        t.status !== "cancelled" &&
+        tg.status !== "done" &&
+        tg.status !== "failed"
+      );
+    });
+  }, [tasks, taskListScope]);
+
   const displayName = profile
     ? asTrimmedString(profile.display_name) || asTrimmedString(profile.external_userid)
     : extUserId || "—";
@@ -639,33 +729,6 @@ export function WecomCustomerProfileClient({
                       无手机号
                     </Button>
                   )}
-                  <Button
-                    variant="secondary"
-                    className="gap-1"
-                    disabled={openingWecom || !asTrimmedString(profile.external_userid)}
-                    onClick={async () => {
-                      const eid = asTrimmedString(profile.external_userid);
-                      if (!eid) return;
-                      setOpeningWecom(true);
-                      try {
-                        const r = await tryOpenWecomExternalUserChat({
-                          externalUserid: eid,
-                          internalUserid: profile.follow_userid,
-                        });
-                        if (r.ok) return;
-                        if (wecomEnv.isWeCom) {
-                          toast.error(r.message ?? "无法打开会话");
-                          return;
-                        }
-                        openDrawer({ type: "wecom_image" });
-                      } finally {
-                        setOpeningWecom(false);
-                      }
-                    }}
-                  >
-                    <MessageCircle className="size-4" />
-                    {openingWecom ? "打开中…" : "会话"}
-                  </Button>
                 </div>
               </>
             ) : null}
@@ -674,21 +737,108 @@ export function WecomCustomerProfileClient({
       ) : null}
 
       {externalContact.kind === "success" && profile ? (
-        <Tabs defaultValue="timeline" className="w-full">
+        <Tabs defaultValue="tasks" className="w-full">
           <TabsList variant="line" className="w-full flex-wrap justify-start bg-transparent p-0">
+            <TabsTrigger value="tasks" className="px-3 py-2">
+              任务
+            </TabsTrigger>
             <TabsTrigger value="timeline" className="px-3 py-2">
               客户轨迹
             </TabsTrigger>
             <TabsTrigger value="leads" className="px-3 py-2">
               线索
             </TabsTrigger>
-            <TabsTrigger value="tasks" className="px-3 py-2">
-              任务
-            </TabsTrigger>
             <TabsTrigger value="tags" className="px-3 py-2">
               标签
             </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="tasks" className="mt-3">
+            <Card>
+              <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
+                <CardTitle className="text-base">任务</CardTitle>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={taskListScope === "open" ? "default" : "outline"}
+                    onClick={() => setTaskListScope("open")}
+                  >
+                    未完成
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={taskListScope === "all" ? "default" : "outline"}
+                    onClick={() => setTaskListScope("all")}
+                  >
+                    全部
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0 sm:p-2">
+                {loadingTasks ? (
+                  <p className="px-4 py-3 text-sm text-muted-foreground">加载中…</p>
+                ) : tasks.length === 0 ? (
+                  <p className="px-4 py-3 text-sm text-muted-foreground">暂无任务对象</p>
+                ) : scopedTasks.length === 0 ? (
+                  <p className="px-4 py-3 text-sm text-muted-foreground">
+                    暂无未完成任务
+                  </p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>任务名称</TableHead>
+                        <TableHead className="hidden sm:table-cell whitespace-nowrap">
+                          截止时间
+                        </TableHead>
+                        <TableHead className="hidden sm:table-cell">状态</TableHead>
+                        <TableHead className="hidden sm:table-cell">跟进方式</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {scopedTasks.map((row) => {
+                        const t = row.task;
+                        const tg = row.target;
+                        const statusLine = `${taskStatusLabel(t.status, t.deadline)} · ${targetStatusLabel(tg.status)}`;
+                        return (
+                          <TableRow key={row.row_id}>
+                            <TableCell>
+                              <button
+                                type="button"
+                                className="text-left font-medium text-primary underline-offset-4 hover:underline"
+                                onClick={() => openTaskSheet(row)}
+                              >
+                                {t.name}
+                              </button>
+                              <div className="mt-1 text-xs text-muted-foreground sm:hidden">
+                                {t.deadline
+                                  ? new Date(t.deadline).toLocaleString("zh-CN")
+                                  : "—"}{" "}
+                                · {channelShort(t.channel)} · {statusLine}
+                              </div>
+                            </TableCell>
+                            <TableCell className="hidden whitespace-nowrap text-sm sm:table-cell">
+                              {t.deadline
+                                ? new Date(t.deadline).toLocaleString("zh-CN")
+                                : "—"}
+                            </TableCell>
+                            <TableCell className="hidden text-sm sm:table-cell">
+                              {statusLine}
+                            </TableCell>
+                            <TableCell className="hidden sm:table-cell">
+                              {channelShort(t.channel)}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           <TabsContent value="timeline" className="mt-3">
             <Card>
@@ -701,29 +851,58 @@ export function WecomCustomerProfileClient({
                 ) : timeline.length === 0 ? (
                   <p className="text-sm text-muted-foreground">暂无记录</p>
                 ) : (
-                  <ul className="space-y-3">
+                  <ul className="space-y-4">
                     {timeline.map((ev, i) => (
-                      <li key={`${ev.at}-${i}`} className="relative pl-5">
-                        <span className="absolute left-0 top-1.5 size-2 rounded-full bg-primary" />
+                      <li
+                        key={`${ev.kind}-${ev.at}-${ev.task_id ?? ev.lead_id ?? ""}-${i}`}
+                        className="relative border-l-2 border-primary/25 pl-4"
+                      >
                         <p className="text-xs text-muted-foreground">
                           {ev.at
                             ? new Date(ev.at).toLocaleString("zh-CN")
                             : "—"}
-                          {ev.kind === "lead_follow" ? (
-                            <Badge variant="outline" className="ml-2 font-normal">
-                              线索
-                            </Badge>
-                          ) : null}
-                          {ev.kind === "task_target" ? (
-                            <Badge variant="secondary" className="ml-2 font-normal">
-                              任务
-                            </Badge>
-                          ) : null}
+                          {timelineKindBadge(ev.kind)}
                         </p>
-                        <p className="mt-0.5 text-sm font-medium">{ev.title}</p>
-                        {ev.detail ? (
-                          <p className="mt-1 text-sm text-muted-foreground">{ev.detail}</p>
-                        ) : null}
+                        <p className="mt-1 text-sm font-medium">{ev.title}</p>
+                        {ev.kind === "lead_follow" ? (
+                          <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                            {ev.next_follow_at ? (
+                              <p>
+                                <span className="text-foreground/80">下次联系：</span>
+                                {new Date(ev.next_follow_at).toLocaleString("zh-CN")}
+                              </p>
+                            ) : null}
+                            <p>
+                              <span className="text-foreground/80">跟进方式：</span>
+                              {followMethodCn(ev.follow_method)}
+                            </p>
+                            {(ev.remark ?? ev.detail)?.trim() ? (
+                              <p className="text-sm text-foreground">
+                                <span className="text-muted-foreground">备注：</span>
+                                {(ev.remark ?? ev.detail ?? "").trim()}
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <>
+                            {ev.detail?.trim() ? (
+                              <p className="mt-1 text-sm text-muted-foreground">
+                                {ev.detail}
+                              </p>
+                            ) : null}
+                            {ev.kind === "task_created" && ev.task_deadline ? (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                截止：{new Date(ev.task_deadline).toLocaleString("zh-CN")}
+                              </p>
+                            ) : null}
+                            {ev.kind === "task_completed" &&
+                            (ev.target_remark ?? "").trim() ? (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                备注：{(ev.target_remark ?? "").trim()}
+                              </p>
+                            ) : null}
+                          </>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -737,96 +916,69 @@ export function WecomCustomerProfileClient({
               <CardHeader>
                 <CardTitle className="text-base">线索</CardTitle>
               </CardHeader>
-              <CardContent className="p-0 sm:p-2">
+              <CardContent className="space-y-3 px-4 py-2 text-sm">
                 {loadingLeads ? (
-                  <p className="px-4 py-3 text-sm text-muted-foreground">加载中…</p>
+                  <p className="text-muted-foreground">加载中…</p>
                 ) : leads.length === 0 ? (
-                  <p className="px-4 py-3 text-sm text-muted-foreground">暂无线索</p>
+                  <p className="text-muted-foreground">暂无线索</p>
+                ) : loadingLeadDetail && !leadDetail ? (
+                  <p className="text-muted-foreground">加载详情…</p>
+                ) : leadDetail ? (
+                  <div className="space-y-4">
+                    <dl className="space-y-3">
+                      <div>
+                        <dt className="text-muted-foreground">客户姓名</dt>
+                        <dd className="font-medium">
+                          {(leadDetail.customer_name ?? "").trim() || "—"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">手机</dt>
+                        <dd className="font-mono">{leadDetail.phone ?? "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">意向车型</dt>
+                        <dd>{leadDetail.intent_model ?? "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">客户等级</dt>
+                        <dd>{leadDetail.customer_level ?? "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">归属人</dt>
+                        <dd>{leadDetail.owner_userid ?? "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">下次跟进（参考）</dt>
+                        <dd>
+                          {leadDetail.next_follow_up_at
+                            ? new Date(leadDetail.next_follow_up_at).toLocaleString(
+                                "zh-CN"
+                              )
+                            : "—"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">最近备注</dt>
+                        <dd className="whitespace-pre-wrap">
+                          {(leadDetail.latest_remark ?? "").trim() || "—"}
+                        </dd>
+                      </div>
+                    </dl>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() =>
+                        openDrawer({ type: "lead", id: leadDetail.id })
+                      }
+                    >
+                      侧边栏查看完整跟进记录
+                    </Button>
+                  </div>
                 ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>客户</TableHead>
-                        <TableHead className="hidden sm:table-cell">意向</TableHead>
-                        <TableHead className="w-[72px]"> </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {leads.map((l) => (
-                        <TableRow key={l.id}>
-                          <TableCell>
-                            <div className="font-medium">
-                              {asTrimmedString(l.customer_name) || "—"}
-                            </div>
-                            <div className="text-xs text-muted-foreground">{l.phone ?? "—"}</div>
-                          </TableCell>
-                          <TableCell className="hidden sm:table-cell">
-                            {l.intent_model ?? "—"}
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              size="sm"
-                              variant="link"
-                              className="h-auto px-0"
-                              onClick={() => openDrawer({ type: "lead", id: l.id })}
-                            >
-                              详情
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="tasks" className="mt-3">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">任务</CardTitle>
-              </CardHeader>
-              <CardContent className="p-0 sm:p-2">
-                {loadingTasks ? (
-                  <p className="px-4 py-3 text-sm text-muted-foreground">加载中…</p>
-                ) : tasks.length === 0 ? (
-                  <p className="px-4 py-3 text-sm text-muted-foreground">暂无任务对象</p>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>任务</TableHead>
-                        <TableHead className="hidden sm:table-cell">状态</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {tasks.map((row) => {
-                        const t = row.task;
-                        const tg = row.target;
-                        return (
-                          <TableRow key={row.row_id}>
-                            <TableCell>
-                              <button
-                                type="button"
-                                className="text-left font-medium text-primary underline-offset-4 hover:underline"
-                                onClick={() => openTaskSheet(row)}
-                              >
-                                {t.name}
-                              </button>
-                              <div className="text-xs text-muted-foreground">
-                                {taskStatusLabel(t.status, t.deadline)} ·{" "}
-                                {targetStatusLabel(tg.status)}
-                              </div>
-                            </TableCell>
-                            <TableCell className="hidden text-sm sm:table-cell">
-                              {taskStatusLabel(t.status, t.deadline)}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
+                  <p className="text-muted-foreground">无法加载线索详情</p>
                 )}
               </CardContent>
             </Card>

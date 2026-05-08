@@ -142,14 +142,29 @@ def list_leads(
     _require_mysql()
     sess: Session = get_session()
     try:
-        next_sub = (
+        # 每条线索取「最新一条跟进记录」（按 follow_at）上的 next_follow_at 与备注
+        _rn = sql_func.row_number().over(
+            partition_by=WecomLeadFollow.lead_id,
+            order_by=(
+                WecomLeadFollow.follow_at.desc(),
+                WecomLeadFollow.id.desc(),
+            ),
+        ).label("rn")
+        _lf_wrap = (
             select(
-                WecomLeadFollow.lead_id.label("lead_id"),
-                sql_func.max(WecomLeadFollow.next_follow_at).label("next_follow_up_at"),
+                WecomLeadFollow.lead_id,
+                WecomLeadFollow.next_follow_at,
+                WecomLeadFollow.remark,
+                _rn,
             )
-            .group_by(WecomLeadFollow.lead_id)
-            .subquery()
-        )
+        ).subquery()
+        lf_latest = (
+            select(
+                _lf_wrap.c.lead_id,
+                _lf_wrap.c.next_follow_at,
+                _lf_wrap.c.remark,
+            ).where(_lf_wrap.c.rn == 1)
+        ).subquery()
         count_follow = (
             select(
                 WecomLeadFollow.lead_id.label("lead_id"),
@@ -162,10 +177,11 @@ def list_leads(
         stmt = (
             select(
                 WecomLead,
-                next_sub.c.next_follow_up_at,
+                lf_latest.c.next_follow_at,
+                lf_latest.c.remark,
                 count_follow.c.cnt,
             )
-            .outerjoin(next_sub, WecomLead.id == next_sub.c.lead_id)
+            .outerjoin(lf_latest, WecomLead.id == lf_latest.c.lead_id)
             .outerjoin(count_follow, WecomLead.id == count_follow.c.lead_id)
         )
 
@@ -191,7 +207,7 @@ def list_leads(
 
         nfd = _parse_date(next_follow_date)
         if nfd:
-            stmt = stmt.where(sql_func.date(next_sub.c.next_follow_up_at) == nfd)
+            stmt = stmt.where(sql_func.date(lf_latest.c.next_follow_at) == nfd)
 
         id_subq = stmt.with_only_columns(WecomLead.id).order_by(None).subquery()
         total = int(sess.execute(select(sql_func.count()).select_from(id_subq)).scalar_one() or 0)
@@ -201,8 +217,9 @@ def list_leads(
         rows = sess.execute(stmt).all()
 
         items = []
-        for lead, next_follow, follow_cnt in rows:
+        for lead, next_follow, latest_remark, follow_cnt in rows:
             fc = int(follow_cnt or 0)
+            lr = (latest_remark or "").strip() if latest_remark is not None else ""
             items.append(
                 {
                     "id": str(lead.id),
@@ -214,6 +231,7 @@ def list_leads(
                     "customer_level": lead.customer_level,
                     "owner_userid": lead.owner_userid,
                     "next_follow_up_at": _dt_iso(next_follow),
+                    "latest_follow_remark": lr or None,
                     "follow_count": fc,
                     "status": "following" if fc > 0 else "new",
                 }

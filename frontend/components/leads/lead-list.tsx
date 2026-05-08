@@ -48,6 +48,8 @@ type ApiLeadRow = {
   customer_level: string | null;
   owner_userid: string | null;
   next_follow_up_at: string | null;
+  /** 最新一条跟进记录的备注 */
+  latest_follow_remark?: string | null;
   status: string;
 };
 
@@ -269,6 +271,7 @@ export function LeadList() {
               <TableHead>客户等级</TableHead>
               <TableHead>意向车型</TableHead>
               <TableHead>下次跟进时间</TableHead>
+              <TableHead className="max-w-[200px]">最新备注</TableHead>
               <TableHead>线索创建时间</TableHead>
               <TableHead>状态</TableHead>
               <TableHead>归属人</TableHead>
@@ -278,14 +281,14 @@ export function LeadList() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
                   加载中…
                 </TableCell>
               </TableRow>
             ) : null}
             {!loading && items.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
                   暂无匹配线索
                 </TableCell>
               </TableRow>
@@ -309,6 +312,11 @@ export function LeadList() {
                       <TableCell>{row.intent_model ?? "—"}</TableCell>
                       <TableCell className="whitespace-nowrap text-muted-foreground text-sm">
                         {formatDateTime(row.next_follow_up_at)}
+                      </TableCell>
+                      <TableCell className="max-w-[200px] text-muted-foreground text-sm">
+                        <span className="line-clamp-2 break-words" title={(row.latest_follow_remark ?? "").trim() || undefined}>
+                          {(row.latest_follow_remark ?? "").trim() || "—"}
+                        </span>
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-muted-foreground text-sm">
                         {formatDateTime(row.created_at)}
