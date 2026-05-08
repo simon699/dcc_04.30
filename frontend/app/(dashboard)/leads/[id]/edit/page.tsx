@@ -108,7 +108,7 @@ export default function LeadEditPage() {
 
   const displayName = (data?.customer_name ?? "").trim() || "未命名";
   const hasWecom = Boolean((data?.external_userid ?? "").trim());
-  const storedPhoneStr = (data.phone ?? "").trim();
+  const storedPhoneStr = (data?.phone ?? "").trim();
   const effectivePhone = storedPhoneStr || phoneSupplement.trim();
   const canUsePhoneFollow = Boolean(effectivePhone);
 
