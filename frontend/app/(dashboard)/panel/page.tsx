@@ -9,8 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { FollowingLeadsPanel } from "@/components/panel/following-leads-panel";
-import { TodayWecomTasks } from "@/components/panel/today-wecom-tasks";
+import { TodayPendingPanel } from "@/components/panel/today-pending-panel";
 import { TodayOverview } from "@/components/panel/today-overview";
 
 export const dynamic = "force-dynamic";
@@ -24,36 +23,26 @@ export default function PanelPage() {
 
       <TodayOverview />
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="border-border/60 shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between pb-3">
-            <div>
-              <CardTitle>今日待跟进电话线索</CardTitle>
-            </div>
-            <Link
-              href="/leads"
-              className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-1")}
-            >
-              线索列表
-              <ArrowRight className="size-4" />
-            </Link>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <FollowingLeadsPanel />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div>
-              <CardTitle>今日待完成企微任务</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <TodayWecomTasks />
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="border-border/60 shadow-sm">
+        <CardHeader className="flex flex-row items-center justify-between pb-3">
+          <div>
+            <CardTitle>今日待完成</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              截止日期为今日且尚未完成的任务对象；可按电话 / 企微切换
+            </p>
+          </div>
+          <Link
+            href="/tasks"
+            className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-1")}
+          >
+            任务中心
+            <ArrowRight className="size-4" />
+          </Link>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <TodayPendingPanel />
+        </CardContent>
+      </Card>
     </div>
   );
 }

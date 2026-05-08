@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import or_, select, func as sql_func
+from sqlalchemy import asc, desc, or_, select, func as sql_func
 from sqlalchemy.orm import Session, selectinload
 
 from db import get_session
@@ -166,6 +166,22 @@ def list_task_rows(
         "",
         description="按外部联系人过滤任务对象行",
     ),
+    deadline_on: str = Query(
+        "",
+        description="任务截止日期为某日（YYYY-MM-DD），按日历日匹配",
+    ),
+    deadline_sort: str = Query(
+        "",
+        description="deadline_on 有值时可选 asc/desc，按任务 deadline 排序",
+    ),
+    creator_userid: str = Query(
+        "",
+        description="任务创建人 userid，空为不限",
+    ),
+    target_pending_only: bool = Query(
+        False,
+        description="为 true 时仅含对象状态为 pending/in_progress/failed 的行",
+    ),
 ) -> dict[str, Any]:
     """任务中心：按任务对象展平，一行一个客户。"""
     _require_mysql()
@@ -200,9 +216,49 @@ def list_task_rows(
                 WecomTaskTarget.target_external_userid == tex
             )
 
+        dod = deadline_on.strip()
+        if dod:
+            try:
+                dcut = date.fromisoformat(dod)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400, detail="deadline_on 须为 YYYY-MM-DD"
+                )
+            stmt = stmt.where(
+                WecomTask.deadline.isnot(None),
+                sql_func.date(WecomTask.deadline) == dcut,
+            )
+            count_stmt = count_stmt.where(
+                WecomTask.deadline.isnot(None),
+                sql_func.date(WecomTask.deadline) == dcut,
+            )
+
+        cc = creator_userid.strip()
+        if cc:
+            stmt = stmt.where(WecomTask.creator_userid == cc)
+            count_stmt = count_stmt.where(WecomTask.creator_userid == cc)
+
+        if target_pending_only:
+            stmt = stmt.where(
+                WecomTaskTarget.status.in_(("pending", "in_progress", "failed"))
+            )
+            count_stmt = count_stmt.where(
+                WecomTaskTarget.status.in_(("pending", "in_progress", "failed"))
+            )
+
         total = int(sess.execute(count_stmt).scalar_one() or 0)
 
-        stmt = stmt.order_by(WecomTask.id.desc(), WecomTaskTarget.id.asc())
+        ds = deadline_sort.strip().lower()
+        if dod and ds == "asc":
+            stmt = stmt.order_by(
+                asc(WecomTask.deadline), WecomTask.id.asc(), WecomTaskTarget.id.asc()
+            )
+        elif dod and ds == "desc":
+            stmt = stmt.order_by(
+                desc(WecomTask.deadline), WecomTask.id.desc(), WecomTaskTarget.id.asc()
+            )
+        else:
+            stmt = stmt.order_by(WecomTask.id.desc(), WecomTaskTarget.id.asc())
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         pairs = sess.execute(stmt).all()
 

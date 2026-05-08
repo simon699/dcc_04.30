@@ -1,9 +1,46 @@
-import { getTodayKpis } from "@/lib/mock-data";
+"use client";
+
+import * as React from "react";
+
+import { DEFAULT_LEAD_OWNER_USERID } from "@/components/leads/lead-drawer-panel";
+
+type TodayKpisPayload = {
+  date?: string;
+  leads_next_follow_today?: number;
+  tasks_due_today_total?: number;
+  tasks_done_today?: number;
+  tasks_undone_today?: number;
+};
 
 export function TodayOverview() {
   const now = new Date();
-  const { leadsNeedFollowUp, taskTotalToday, doneToday, undoneToday } =
-    getTodayKpis(now);
+  const [kpis, setKpis] = React.useState<TodayKpisPayload | null>(null);
+  const [kpiErr, setKpiErr] = React.useState(false);
+
+  React.useEffect(() => {
+    const q = new URLSearchParams();
+    q.set("owner_userid", DEFAULT_LEAD_OWNER_USERID);
+    q.set("creator_userid", DEFAULT_LEAD_OWNER_USERID);
+    fetch(`/api/panel/today-kpis?${q.toString()}`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(await r.text());
+        return r.json() as Promise<TodayKpisPayload>;
+      })
+      .then((d) => {
+        setKpis(d);
+        setKpiErr(false);
+      })
+      .catch(() => {
+        setKpis(null);
+        setKpiErr(true);
+      });
+  }, []);
+
+  const leadsNeedFollowUp = kpis?.leads_next_follow_today ?? (kpiErr ? 0 : "—");
+  const taskTotalToday = kpis?.tasks_due_today_total ?? (kpiErr ? 0 : "—");
+  const doneToday = kpis?.tasks_done_today ?? (kpiErr ? 0 : "—");
+  const undoneToday = kpis?.tasks_undone_today ?? (kpiErr ? 0 : "—");
+
   const monthlyLeadCount = 432;
   const monthlyFirstInviteCount = 168;
   const callHalfHourRate = 96.4;
@@ -22,6 +59,12 @@ export function TodayOverview() {
         <h2 className="text-sm font-medium text-foreground">今日概览</h2>
         <p className="text-xs text-muted-foreground tabular-nums">{dateLabel}</p>
       </div>
+
+      {kpiErr ? (
+        <p className="text-xs text-destructive">
+          今日指标加载失败（请确认后端已启动且已配置 MYSQL_URL）
+        </p>
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <KpiTile label="今日需跟进线索" value={leadsNeedFollowUp} />

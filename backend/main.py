@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from customer_center_api import router as customer_center_router
 from leads_api import router as leads_router
+from panel_api import router as panel_router
 from tasks_api import router as tasks_router
 from customer_sync import last_sync_result, run_customer_sync_and_remember
 from wecom_jssdk import agent_signature_for_url, corp_signature_for_url
@@ -16,6 +17,7 @@ from wecom_jssdk import agent_signature_for_url, corp_signature_for_url
 app = FastAPI(title="DCC API", version="0.1.0")
 app.include_router(customer_center_router)
 app.include_router(leads_router)
+app.include_router(panel_router)
 app.include_router(tasks_router)
 
 app.add_middleware(
