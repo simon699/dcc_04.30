@@ -49,6 +49,7 @@ export type ApiLeadDetail = {
     remark: string | null;
     next_follow_at: string | null;
     follow_method: string | null;
+    call_duration_seconds?: number | null;
   }>;
 };
 
@@ -68,6 +69,14 @@ function formatPhone(phone?: string | null): string {
   if (!raw) return "—";
   if (raw.startsWith("+86")) return raw.slice(3);
   return raw;
+}
+
+function followMethodLabel(method: string | null | undefined): string {
+  const m = (method ?? "").trim().toLowerCase();
+  if (m === "phone") return "电话";
+  if (m === "wecom") return "微信";
+  if (!method?.trim()) return "—";
+  return method.trim();
 }
 
 export function LeadDrawerPanel({ leadId }: { leadId: string }) {
@@ -299,17 +308,33 @@ export function LeadDrawerPanel({ leadId }: { leadId: string }) {
             {data.follows.length === 0 ? (
               <p className="text-sm text-muted-foreground">暂无跟进记录</p>
             ) : (
-              <ul className="space-y-3">
+              <ul className="space-y-4">
                 {data.follows.map((r) => (
-                  <li key={r.id} className="relative pl-5">
-                    <span className="absolute left-0 top-1.5 size-2 rounded-full bg-primary" />
-                    <div className="text-xs text-muted-foreground">
+                  <li key={r.id} className="relative border-l-2 border-primary/25 pl-4">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      跟进时间{" "}
                       {r.follow_at
                         ? new Date(r.follow_at).toLocaleString("zh-CN")
                         : "—"}
-                      {r.follow_method ? ` · ${r.follow_method}` : ""}
-                    </div>
-                    <p className="mt-1 text-sm">{r.remark ?? "—"}</p>
+                    </p>
+                    <dl className="mt-2 space-y-1.5 text-sm">
+                      <div>
+                        <dt className="text-muted-foreground">备注</dt>
+                        <dd className="mt-0.5">{r.remark?.trim() ? r.remark : "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">下次联系时间</dt>
+                        <dd className="mt-0.5">
+                          {r.next_follow_at
+                            ? new Date(r.next_follow_at).toLocaleString("zh-CN")
+                            : "—"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">下次跟进方式</dt>
+                        <dd className="mt-0.5">{followMethodLabel(r.follow_method)}</dd>
+                      </div>
+                    </dl>
                   </li>
                 ))}
               </ul>

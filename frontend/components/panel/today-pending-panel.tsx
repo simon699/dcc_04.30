@@ -7,6 +7,7 @@ import { env as wecomEnv } from "@wecom/jssdk";
 
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Sheet,
   SheetContent,
@@ -15,15 +16,10 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  getInitialTodayCallLogs,
-  type TodayCallLogEntry,
-} from "@/lib/mock-data";
 import { useUiStore } from "@/lib/store/ui-store";
 import { tryOpenWecomExternalUserChat } from "@/lib/wecom-open-chat";
 import { asTrimmedString, cn } from "@/lib/utils";
 
-import { TodayCallLog } from "@/components/panel/today-call-log";
 import { DEFAULT_LEAD_OWNER_USERID } from "@/components/leads/lead-drawer-panel";
 
 const SHEET_WIDE =
@@ -58,16 +54,20 @@ function todayIsoLocal(d = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
-function formatNowTime(): string {
-  const d = new Date();
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
-function randomDurationLabel(): string {
-  const m = Math.floor(Math.random() * 4) + 1;
-  const s = Math.floor(Math.random() * 60);
+function formatDurationSec(sec: number | null | undefined): string {
+  if (sec == null || sec <= 0 || Number.isNaN(sec)) return "—";
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
   return `${m}分${String(s).padStart(2, "0")}秒`;
 }
+
+type PhoneFollowApiRow = {
+  follow_id: number;
+  follow_at: string | null;
+  customer_name: string;
+  phone: string;
+  call_duration_seconds: number | null;
+};
 
 function taskTypeLabel(t: string): string {
   if (t === "mass_send") return "群发";
@@ -145,10 +145,14 @@ export function TodayPendingPanel() {
   const [err, setErr] = React.useState<string | null>(null);
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
   const [openingChat, setOpeningChat] = React.useState<string | null>(null);
-  const [callLogs, setCallLogs] = React.useState<TodayCallLogEntry[]>(() =>
-    getInitialTodayCallLogs()
-  );
   const [callLogOpen, setCallLogOpen] = React.useState(false);
+  const [phoneFollowRows, setPhoneFollowRows] = React.useState<
+    PhoneFollowApiRow[]
+  >([]);
+  const [phoneFollowLoading, setPhoneFollowLoading] = React.useState(false);
+  const [phoneFollowErr, setPhoneFollowErr] = React.useState<string | null>(
+    null
+  );
 
   const deadlineOn = React.useMemo(() => todayIsoLocal(), []);
 
@@ -197,6 +201,24 @@ export function TodayPendingPanel() {
     setPage(1);
   }, [channelTab]);
 
+  function loadPhoneFollows() {
+    setPhoneFollowLoading(true);
+    setPhoneFollowErr(null);
+    const q = new URLSearchParams();
+    q.set("owner_userid", DEFAULT_LEAD_OWNER_USERID);
+    fetch(`/api/panel/today-phone-follows?${q.toString()}`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(await r.text());
+        return r.json() as Promise<{ items: PhoneFollowApiRow[] }>;
+      })
+      .then((d) => setPhoneFollowRows(d.items ?? []))
+      .catch((e: Error) => {
+        setPhoneFollowRows([]);
+        setPhoneFollowErr(e.message || "加载失败");
+      })
+      .finally(() => setPhoneFollowLoading(false));
+  }
+
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE) || 1);
   const currentPage = Math.min(page, pageCount);
 
@@ -242,18 +264,6 @@ export function TodayPendingPanel() {
       /\s/g,
       ""
     );
-    const now = formatNowTime();
-    setCallLogs((prev) => [
-      {
-        id: `panel-${Date.now()}`,
-        timeLabel: now,
-        name: displayTarget(first),
-        phone,
-        durationLabel: randomDurationLabel(),
-        result: "外呼已发起（演示记录）",
-      },
-      ...prev,
-    ]);
     window.location.href = `tel:${phone}`;
   }
 
@@ -449,40 +459,32 @@ export function TodayPendingPanel() {
         </TabsList>
 
         <TabsContent value="phone" className="mt-0 space-y-0">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-            <div className="min-w-0 flex-1 space-y-4">
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={startDialFromSelection}
-                  className={cn(
-                    "flex size-14 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg",
-                    "transition-colors hover:bg-emerald-700",
-                    "focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:ring-offset-2 focus-visible:outline-none"
-                  )}
-                  aria-label="按勾选拨打电话"
-                >
-                  <Phone className="size-7 stroke-[2]" aria-hidden />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCallLogOpen(true)}
-                  className={cn(
-                    "lg:hidden",
-                    "shrink-0 border-0 bg-transparent p-0 text-sm font-medium text-muted-foreground shadow-none",
-                    "underline decoration-muted-foreground/50 underline-offset-4",
-                    "hover:text-foreground hover:decoration-foreground/40",
-                    "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                  )}
-                >
-                  通话记录
-                </button>
-              </div>
-              {listBlock}
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={startDialFromSelection}
+                className={cn(
+                  "flex size-14 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg",
+                  "transition-colors hover:bg-emerald-700",
+                  "focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:ring-offset-2 focus-visible:outline-none"
+                )}
+                aria-label="按勾选拨打电话"
+              >
+                <Phone className="size-7 stroke-[2]" aria-hidden />
+              </button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => setCallLogOpen(true)}
+              >
+                <History className="size-4" aria-hidden />
+                通话记录
+              </Button>
             </div>
-            <div className="hidden w-[280px] shrink-0 lg:block">
-              <TodayCallLog entries={callLogs} />
-            </div>
+            {listBlock}
           </div>
         </TabsContent>
 
@@ -491,19 +493,62 @@ export function TodayPendingPanel() {
         </TabsContent>
       </Tabs>
 
-      <Sheet open={callLogOpen} onOpenChange={setCallLogOpen}>
+      <Sheet
+        open={callLogOpen}
+        onOpenChange={(open) => {
+          setCallLogOpen(open);
+          if (open) loadPhoneFollows();
+        }}
+      >
         <SheetContent className={SHEET_WIDE}>
           <SheetHeader className="border-b px-6 py-4 text-left">
             <SheetTitle className="flex items-center gap-2">
               <History className="size-4 text-muted-foreground" aria-hidden />
-              今日通话记录
+              今日电话跟进记录
             </SheetTitle>
             <SheetDescription>
-              共 {callLogs.length} 条 · 演示数据与外呼演示追加
+              今日已保存的电话跟进（线索编辑页提交，并可填写通话时长）
             </SheetDescription>
           </SheetHeader>
-          <div className="flex-1 overflow-hidden px-2 pb-4 pt-2">
-            <TodayCallLog entries={callLogs} embedded />
+          <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-2">
+            {phoneFollowErr ? (
+              <p className="text-sm text-destructive">{phoneFollowErr}</p>
+            ) : null}
+            {phoneFollowLoading ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                加载中…
+              </p>
+            ) : (
+              <ScrollArea className="h-[min(420px,calc(100vh-10rem))]">
+                <ul className="divide-y divide-border/60 pr-3">
+                  {!phoneFollowLoading && phoneFollowRows.length === 0 ? (
+                    <li className="py-8 text-center text-sm text-muted-foreground">
+                      今日暂无电话跟进记录
+                    </li>
+                  ) : null}
+                  {phoneFollowRows.map((row) => (
+                    <li key={row.follow_id} className="py-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="font-medium text-foreground">
+                          {row.customer_name}
+                        </span>
+                        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                          {row.follow_at
+                            ? new Date(row.follow_at).toLocaleString("zh-CN")
+                            : "—"}
+                        </span>
+                      </div>
+                      <p className="mt-1 font-mono text-xs text-muted-foreground">
+                        {row.phone}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        通话时长：{formatDurationSec(row.call_duration_seconds)}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </ScrollArea>
+            )}
           </div>
         </SheetContent>
       </Sheet>

@@ -92,6 +92,7 @@ class WecomLeadFollow(Base):
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
     next_follow_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
     follow_method: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    call_duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), server_default=func.now())
 
 

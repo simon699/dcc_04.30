@@ -45,6 +45,10 @@ export default function LeadEditPage() {
   const [nextFollowMethod, setNextFollowMethod] = React.useState<"phone" | "wecom">(
     "phone"
   );
+  /** 线索无主档手机号时，保存跟进前可在此填写 */
+  const [phoneSupplement, setPhoneSupplement] = React.useState("");
+  /** 电话跟进时可选，单位：秒 */
+  const [callDurationSec, setCallDurationSec] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
 
   const load = React.useCallback(() => {
@@ -78,6 +82,11 @@ export default function LeadEditPage() {
           setLevel(lv);
         }
         setNote("");
+        setPhoneSupplement("");
+        setCallDurationSec("");
+        const sp = (d.phone ?? "").trim();
+        const ext = (d.external_userid ?? "").trim();
+        setNextFollowMethod(sp ? "phone" : ext ? "wecom" : "wecom");
         if (d.next_follow_up_at) {
           setNextFollow(formatDateTimeInput(d.next_follow_up_at));
         } else {
@@ -99,6 +108,9 @@ export default function LeadEditPage() {
 
   const displayName = (data?.customer_name ?? "").trim() || "未命名";
   const hasWecom = Boolean((data?.external_userid ?? "").trim());
+  const storedPhoneStr = (data.phone ?? "").trim();
+  const effectivePhone = storedPhoneStr || phoneSupplement.trim();
+  const canUsePhoneFollow = Boolean(effectivePhone);
 
   React.useEffect(() => {
     if (!data) return;
@@ -110,6 +122,13 @@ export default function LeadEditPage() {
     }
   }, [entry, data, displayName]);
 
+  React.useEffect(() => {
+    if (nextFollowMethod === "phone" && !canUsePhoneFollow) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 无手机号时不能停留在「电话」方式
+      setNextFollowMethod("wecom");
+    }
+  }, [nextFollowMethod, canUsePhoneFollow]);
+
   async function submitCompleteFollow() {
     if (!data) {
       toast.error("线索数据未加载");
@@ -119,15 +138,28 @@ export default function LeadEditPage() {
       toast.error("请填写下次跟进时间");
       return;
     }
-    const phOk = Boolean((data.phone ?? "").trim());
+    if (nextFollowMethod === "phone" && !canUsePhoneFollow) {
+      toast.error("电话跟进请先在客户信息中填写手机号");
+      return;
+    }
     const extOk = Boolean((data.external_userid ?? "").trim());
-    if (!phOk && !extOk) {
+    const phoneOk = Boolean(effectivePhone);
+    if (!phoneOk && !extOk) {
       toast.error("线索缺少手机号与企微客户 ID，无法生成跟进任务");
       return;
     }
+    let callDurationSeconds: number | undefined;
+    if (nextFollowMethod === "phone" && callDurationSec.trim()) {
+      const n = parseInt(callDurationSec.trim(), 10);
+      if (Number.isNaN(n) || n < 0) {
+        toast.error("通话时长须为有效的非负整数（秒）");
+        return;
+      }
+      callDurationSeconds = n;
+    }
     setSubmitting(true);
     try {
-      const body = {
+      const body: Record<string, unknown> = {
         intent_model: intentModel.trim() || null,
         customer_level: level,
         remark: note.trim() || null,
@@ -135,6 +167,12 @@ export default function LeadEditPage() {
         next_follow_at: nextFollow.trim(),
         next_follow_method: nextFollowMethod,
       };
+      if (!storedPhoneStr && phoneSupplement.trim()) {
+        body.phone = phoneSupplement.trim();
+      }
+      if (callDurationSeconds !== undefined) {
+        body.call_duration_seconds = callDurationSeconds;
+      }
       const r = await fetch(`/api/leads/${encodeURIComponent(leadId)}/complete-follow`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -199,7 +237,9 @@ export default function LeadEditPage() {
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-lg font-semibold">{displayName}</span>
             <Badge variant="secondary">
-              {data.phone ? data.phone.replace(/^\+86/, "") : "无手机号"}
+              {effectivePhone
+                ? effectivePhone.replace(/^\+86/, "")
+                : "无手机号"}
             </Badge>
             <Badge variant={hasWecom ? "default" : "outline"}>
               {hasWecom ? "已加微" : "未加微"}
@@ -223,6 +263,21 @@ export default function LeadEditPage() {
               {data.owner_userid ?? "—"}
             </p>
           </div>
+          {!storedPhoneStr ? (
+            <div className="space-y-2 pt-1">
+              <Label htmlFor="phoneSupplement">手机号</Label>
+              <Input
+                id="phoneSupplement"
+                value={phoneSupplement}
+                onChange={(e) => setPhoneSupplement(e.target.value)}
+                placeholder="无主档手机号时可填写，提交跟进时将写入线索"
+                autoComplete="tel"
+              />
+              <p className="text-xs text-muted-foreground">
+                填写后方可选择「电话」跟进方式，并用于生成电话任务。
+              </p>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -272,6 +327,10 @@ export default function LeadEditPage() {
                   size="sm"
                   variant={nextFollowMethod === "phone" ? "default" : "outline"}
                   onClick={() => setNextFollowMethod("phone")}
+                  disabled={!canUsePhoneFollow}
+                  title={
+                    !canUsePhoneFollow ? "请先填写客户手机号后再选择电话跟进" : undefined
+                  }
                   className={cn(nextFollowMethod !== "phone" && "border-dashed")}
                 >
                   电话
@@ -289,8 +348,31 @@ export default function LeadEditPage() {
               <p className="text-xs text-muted-foreground">
                 将写入跟进表，并用于生成任务的触达方式（电话 / 企微）。
               </p>
+              {!canUsePhoneFollow ? (
+                <p className="text-xs text-amber-700 dark:text-amber-500">
+                  当前无主档手机号：请先在上方的客户信息中填写手机号，才能选择电话跟进。
+                </p>
+              ) : null}
             </div>
           </div>
+
+          {nextFollowMethod === "phone" ? (
+            <div className="space-y-2">
+              <Label htmlFor="callDurationSec">本次通话时长（秒，选填）</Label>
+              <Input
+                id="callDurationSec"
+                inputMode="numeric"
+                value={callDurationSec}
+                onChange={(e) =>
+                  setCallDurationSec(e.target.value.replace(/\D/g, ""))
+                }
+                placeholder="例如 180"
+              />
+              <p className="text-xs text-muted-foreground">
+                将写入跟进记录并展示在工作台「通话记录」中。
+              </p>
+            </div>
+          ) : null}
 
           <div className="space-y-2">
             <Label>客户等级</Label>

@@ -21,6 +21,93 @@ DEFAULT_OWNER_USERID = "ShiFengwei"
 _ALLOWED_FOLLOW_METHOD = frozenset({"phone", "wecom"})
 
 
+def _digits_phone(s: str | None) -> str:
+    return "".join(c for c in (s or "") if c.isdigit())
+
+
+def _phones_match_lead(lead_phone: str | None, target_phone: str | None) -> bool:
+    a = _digits_phone(lead_phone)
+    b = _digits_phone(target_phone)
+    return len(a) >= 7 and len(b) >= 7 and a == b
+
+
+def _maybe_refresh_task_done(sess: Session, task_id: int) -> None:
+    """与 tasks_api 一致：全部对象为 done/failed 时标记任务完成。"""
+    task = sess.get(WecomTask, task_id)
+    if task is None:
+        return
+    rows = sess.scalars(
+        select(WecomTaskTarget).where(WecomTaskTarget.task_id == task_id)
+    ).all()
+    if not rows:
+        return
+    all_terminal = all(r.status in ("done", "failed") for r in rows)
+    if all_terminal and task.status not in ("done", "cancelled"):
+        task.status = "done"
+        if task.completed_at is None:
+            task.completed_at = datetime.now()
+
+
+def _target_matches_lead(tg: WecomTaskTarget, lead: WecomLead) -> bool:
+    ext_l = (lead.external_userid or "").strip() or None
+    ext_t = (tg.target_external_userid or "").strip() or None
+    if ext_l and ext_t and ext_l == ext_t:
+        return True
+    return _phones_match_lead(lead.phone, tg.target_phone)
+
+
+def _complete_prior_follow_task_for_lead(
+    sess: Session,
+    lead: WecomLead,
+    completed_task_id: int | None,
+) -> None:
+    """线索再次跟进时，先将上一待办跟进任务视为完成；再写入本次跟进并生成新任务。"""
+    now = datetime.utcnow()
+
+    if completed_task_id is not None:
+        task = sess.get(WecomTask, completed_task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="指定的跟进任务不存在")
+        if task.task_type != "follow_up":
+            raise HTTPException(status_code=400, detail="仅跟进任务可通过线索跟进关闭")
+        targets = sess.scalars(
+            select(WecomTaskTarget).where(
+                WecomTaskTarget.task_id == completed_task_id
+            )
+        ).all()
+        if len(targets) != 1:
+            raise HTTPException(status_code=400, detail="跟进任务对象异常")
+        tg = targets[0]
+        if not _target_matches_lead(tg, lead):
+            raise HTTPException(status_code=400, detail="任务对象与当前线索不一致")
+        if task.status not in ("done", "cancelled") and tg.status not in (
+            "done",
+            "failed",
+        ):
+            tg.status = "done"
+            tg.completed_at = now
+            _maybe_refresh_task_done(sess, completed_task_id)
+        return
+
+    stmt = (
+        select(WecomTask, WecomTaskTarget)
+        .join(WecomTaskTarget, WecomTaskTarget.task_id == WecomTask.id)
+        .where(
+            WecomTask.task_type == "follow_up",
+            WecomTask.status.in_(["pending", "in_progress"]),
+            WecomTaskTarget.status.in_(["pending", "in_progress"]),
+        )
+        .order_by(WecomTask.id.desc())
+    )
+    pairs = sess.execute(stmt).all()
+    for task, tg in pairs:
+        if _target_matches_lead(tg, lead):
+            tg.status = "done"
+            tg.completed_at = now
+            _maybe_refresh_task_done(sess, task.id)
+            break
+
+
 def _require_mysql() -> None:
     if not os.environ.get("MYSQL_URL", "").strip():
         raise HTTPException(status_code=503, detail="未配置 MYSQL_URL")
@@ -301,6 +388,7 @@ def get_lead_detail(lead_id: int) -> dict[str, Any]:
                 "remark": f.remark,
                 "next_follow_at": _dt_iso(f.next_follow_at),
                 "follow_method": f.follow_method,
+                "call_duration_seconds": f.call_duration_seconds,
             }
             for f in follows
         ]
@@ -416,6 +504,21 @@ class LeadCompleteFollowBody(BaseModel):
     invite_store_at: str | None = Field(None, description="邀约到店日期，可选")
     next_follow_at: str = Field(..., min_length=1)
     next_follow_method: str = Field(..., min_length=1, description="phone 或 wecom")
+    phone: str | None = Field(
+        None,
+        max_length=32,
+        description="补充线索手机号（线索编辑页无手机号时可提交保存）",
+    )
+    call_duration_seconds: int | None = Field(
+        None,
+        ge=0,
+        le=86400,
+        description="本次电话跟进通话时长（秒），可选",
+    )
+    completed_task_id: int | None = Field(
+        None,
+        description="从任务入口跟进时传入：要先标记完成的跟进任务 ID",
+    )
 
 
 @router.post("/api/leads/{lead_id}/complete-follow")
@@ -443,6 +546,12 @@ def complete_lead_follow(lead_id: int, body: LeadCompleteFollowBody) -> dict[str
         if body.customer_level is not None:
             lead.customer_level = (body.customer_level or "").strip() or None
 
+        phone_patch = (body.phone or "").strip()
+        if phone_patch:
+            lead.phone = phone_patch[:32]
+
+        _complete_prior_follow_task_for_lead(sess, lead, body.completed_task_id)
+
         remark_parts: list[str] = []
         if body.remark and str(body.remark).strip():
             remark_parts.append(str(body.remark).strip())
@@ -451,12 +560,25 @@ def complete_lead_follow(lead_id: int, body: LeadCompleteFollowBody) -> dict[str
             remark_parts.append(f"邀约到店：{inv}")
         remark_final = "\n".join(remark_parts) if remark_parts else None
 
+        ph_now = (lead.phone or "").strip()
+        ext_now = (lead.external_userid or "").strip() or None
+        if method == "phone" and not ph_now:
+            raise HTTPException(
+                status_code=400,
+                detail="电话跟进须填写线索手机号（可在客户信息中补充）",
+            )
+
+        dur = body.call_duration_seconds
+        if method != "phone":
+            dur = None
+
         follow_rec = WecomLeadFollow(
             lead_id=lead_id,
             follow_at=datetime.utcnow(),
             remark=remark_final,
             next_follow_at=nf,
             follow_method=method,
+            call_duration_seconds=dur,
         )
         sess.add(follow_rec)
         sess.flush()
@@ -479,8 +601,8 @@ def complete_lead_follow(lead_id: int, body: LeadCompleteFollowBody) -> dict[str
         sess.add(task)
         sess.flush()
 
-        ext = (lead.external_userid or "").strip() or None
-        ph = (lead.phone or "").strip() or None
+        ext = ext_now
+        ph = ph_now or None
         if not ext and not ph:
             raise HTTPException(
                 status_code=400,

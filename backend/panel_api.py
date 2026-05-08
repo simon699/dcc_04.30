@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -13,6 +13,12 @@ from db import get_session
 from models import WecomLead, WecomLeadFollow, WecomTask, WecomTaskTarget
 
 router = APIRouter()
+
+
+def _dt_iso(v: datetime | None) -> str | None:
+    if v is None:
+        return None
+    return v.isoformat()
 
 
 def _require_mysql() -> None:
@@ -100,5 +106,46 @@ def today_kpis(
             "tasks_done_today": tasks_done_today,
             "tasks_undone_today": tasks_undone_today,
         }
+    finally:
+        sess.close()
+
+
+@router.get("/api/panel/today-phone-follows")
+def today_phone_follows(
+    owner_userid: str = Query(
+        "",
+        description="线索归属人 userid，空为不按归属过滤",
+    ),
+) -> dict[str, Any]:
+    """今日已记录的电话跟进（跟进方式=电话），含客户姓名、手机号、通话时长。"""
+    _require_mysql()
+    today_d = date.today()
+    sess = get_session()
+    try:
+        stmt = (
+            select(WecomLeadFollow, WecomLead)
+            .join(WecomLead, WecomLead.id == WecomLeadFollow.lead_id)
+            .where(
+                sql_func.date(WecomLeadFollow.follow_at) == today_d,
+                WecomLeadFollow.follow_method == "phone",
+            )
+            .order_by(WecomLeadFollow.follow_at.desc())
+        )
+        ow = owner_userid.strip()
+        if ow:
+            stmt = stmt.where(WecomLead.owner_userid == ow)
+        rows = sess.execute(stmt).all()
+        items: list[dict[str, Any]] = []
+        for f, lead in rows:
+            items.append(
+                {
+                    "follow_id": f.id,
+                    "follow_at": _dt_iso(f.follow_at),
+                    "customer_name": (lead.customer_name or "").strip() or "—",
+                    "phone": (lead.phone or "").strip() or "—",
+                    "call_duration_seconds": f.call_duration_seconds,
+                }
+            )
+        return {"date": today_d.isoformat(), "items": items}
     finally:
         sess.close()

@@ -9,7 +9,18 @@ import type { CustomerProfileApi } from "@/components/customers/customer-center-
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -48,6 +59,7 @@ type LeadRow = {
   id: string;
   phone: string | null;
   customer_name: string | null;
+  external_userid?: string | null;
   intent_model: string | null;
   customer_level: string | null;
   created_at: string | null;
@@ -119,15 +131,6 @@ function targetStatusLabel(s: string): string {
   }
 }
 
-function mapTargetForDrawer(
-  s: string
-): "pending" | "in_progress" | "done" | "failed" {
-  if (s === "done") return "done";
-  if (s === "failed") return "failed";
-  if (s === "in_progress") return "in_progress";
-  return "pending";
-}
-
 function targetLabel(row: ApiTaskRow): string {
   const n = asTrimmedString(row.target_display_name);
   if (n && n !== "—") return n;
@@ -136,6 +139,50 @@ function targetLabel(row: ApiTaskRow): string {
   if (e) return e;
   if (ph) return ph;
   return "—";
+}
+
+function defaultTomorrowMorning(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(10, 0, 0, 0);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}T10:00`;
+}
+
+function taskTypeShort(t: string): string {
+  if (t === "mass_send") return "群发";
+  if (t === "follow_up") return "跟进";
+  return t;
+}
+
+function channelShort(ch: string): string {
+  if (ch === "phone") return "电话";
+  if (ch === "wecom") return "企微";
+  return ch;
+}
+
+function resolveLeadIdForTask(row: ApiTaskRow, list: LeadRow[]): string | null {
+  const ext = asTrimmedString(row.target.target_external_userid);
+  const phRaw = asTrimmedString(row.target.target_phone).replace(/\s/g, "");
+  const digitEq = (a: string, b: string) => {
+    const da = a.replace(/\D/g, "");
+    const db = b.replace(/\D/g, "");
+    return da.length >= 7 && da === db;
+  };
+  if (ext) {
+    const hit = list.find((l) => asTrimmedString(l.external_userid) === ext);
+    if (hit) return hit.id;
+  }
+  if (phRaw) {
+    const hit = list.find((l) => {
+      const lp = asTrimmedString(l.phone).replace(/\s/g, "");
+      return digitEq(lp, phRaw);
+    });
+    if (hit) return hit.id;
+  }
+  return list[0]?.id ?? null;
 }
 
 export function WecomCustomerProfileClient({
@@ -346,6 +393,157 @@ export function WecomCustomerProfileClient({
       setLoadingTasks(false);
     }
   }, [extUserId]);
+
+  const [taskSheetRow, setTaskSheetRow] = React.useState<ApiTaskRow | null>(null);
+  const [taskSheetStep, setTaskSheetStep] = React.useState<"detail" | "follow">(
+    "detail"
+  );
+  const [followNextAt, setFollowNextAt] = React.useState("");
+  const [followRemark, setFollowRemark] = React.useState("");
+  const [followMethod, setFollowMethod] = React.useState<"phone" | "wecom">(
+    "wecom"
+  );
+  const [followPhoneExtra, setFollowPhoneExtra] = React.useState("");
+  const [followCallSec, setFollowCallSec] = React.useState("");
+  const [followSubmitting, setFollowSubmitting] = React.useState(false);
+
+  const openTaskSheet = React.useCallback((row: ApiTaskRow) => {
+    setTaskSheetRow(row);
+    setTaskSheetStep("detail");
+    setFollowRemark("");
+    setFollowCallSec("");
+    setFollowPhoneExtra("");
+    setFollowNextAt(defaultTomorrowMorning());
+    const t = row.task;
+    setFollowMethod(t.channel === "phone" ? "phone" : "wecom");
+  }, []);
+
+  const completeTaskTargetSimple = React.useCallback(
+    async (row: ApiTaskRow) => {
+      const t = row.task;
+      const tg = row.target;
+      if (t.status === "done" || tg.status === "done") {
+        toast.message("任务已完成");
+        return;
+      }
+      try {
+        const r = await fetch(
+          `/api/tasks/${encodeURIComponent(t.id)}/targets/${encodeURIComponent(
+            String(tg.id)
+          )}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              status: "done",
+              completed_at: new Date().toISOString(),
+            }),
+          }
+        );
+        const json: unknown = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(formatHttpApiDetail(json));
+        toast.success("已标记完成");
+        setTaskSheetRow(null);
+        void loadTasks();
+        void loadTimeline();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [loadTasks, loadTimeline]
+  );
+
+  const submitFollowComplete = React.useCallback(async () => {
+    if (!taskSheetRow) return;
+    const leadId = resolveLeadIdForTask(taskSheetRow, leads);
+    if (!leadId) {
+      toast.error("未匹配到线索，无法提交跟进");
+      return;
+    }
+    const leadRow = leads.find((l) => l.id === leadId);
+    const storedPhone = asTrimmedString(leadRow?.phone);
+    const profilePhone = asTrimmedString(profile?.phone);
+    const effectivePhone =
+      storedPhone || followPhoneExtra.trim() || profilePhone;
+    if (!followNextAt.trim()) {
+      toast.error("请填写下次联系时间");
+      return;
+    }
+    if (followMethod === "phone" && !effectivePhone) {
+      toast.error("电话跟进请先填写手机号（线索或下方补充）");
+      return;
+    }
+    let callDurationSeconds: number | undefined;
+    if (followMethod === "phone" && followCallSec.trim()) {
+      const n = parseInt(followCallSec.trim(), 10);
+      if (Number.isNaN(n) || n < 0) {
+        toast.error("通话时长须为非负整数（秒）");
+        return;
+      }
+      callDurationSeconds = n;
+    }
+    const extOk =
+      Boolean(asTrimmedString(profile?.external_userid)) ||
+      Boolean(asTrimmedString(leadRow?.external_userid));
+    const phoneOk = Boolean(effectivePhone);
+    if (!phoneOk && !extOk) {
+      toast.error("缺少手机号与企微身份，无法生成任务");
+      return;
+    }
+    setFollowSubmitting(true);
+    try {
+      const tid = parseInt(taskSheetRow.task.id, 10);
+      const body: Record<string, unknown> = {
+        intent_model: leadRow?.intent_model ?? null,
+        customer_level: leadRow?.customer_level ?? null,
+        remark: followRemark.trim() || null,
+        invite_store_at: null,
+        next_follow_at: followNextAt.trim(),
+        next_follow_method: followMethod,
+      };
+      if (!Number.isNaN(tid)) {
+        body.completed_task_id = tid;
+      }
+      if (!storedPhone && followPhoneExtra.trim()) {
+        body.phone = followPhoneExtra.trim();
+      }
+      if (callDurationSeconds !== undefined) {
+        body.call_duration_seconds = callDurationSeconds;
+      }
+      const r = await fetch(
+        `/api/leads/${encodeURIComponent(leadId)}/complete-follow`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }
+      );
+      const json: unknown = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(formatHttpApiDetail(json));
+      toast.success("跟进已保存，上一任务已关闭并生成新任务");
+      setTaskSheetRow(null);
+      setTaskSheetStep("detail");
+      void loadTasks();
+      void loadTimeline();
+      void loadLeads();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setFollowSubmitting(false);
+    }
+  }, [
+    taskSheetRow,
+    leads,
+    profile,
+    followNextAt,
+    followRemark,
+    followMethod,
+    followPhoneExtra,
+    followCallSec,
+    loadTasks,
+    loadTimeline,
+    loadLeads,
+  ]);
 
   React.useEffect(() => {
     if (!extUserId) return;
@@ -612,15 +810,7 @@ export function WecomCustomerProfileClient({
                               <button
                                 type="button"
                                 className="text-left font-medium text-primary underline-offset-4 hover:underline"
-                                onClick={() =>
-                                  openDrawer({
-                                    type: "task",
-                                    id: t.id,
-                                    apiTargetId: String(tg.id),
-                                    currentCustomerName: targetLabel(row),
-                                    currentCustomerStatus: mapTargetForDrawer(tg.status),
-                                  })
-                                }
+                                onClick={() => openTaskSheet(row)}
                               >
                                 {t.name}
                               </button>
@@ -664,6 +854,211 @@ export function WecomCustomerProfileClient({
           </TabsContent>
         </Tabs>
       ) : null}
+
+      <Sheet
+        open={taskSheetRow !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setTaskSheetRow(null);
+            setTaskSheetStep("detail");
+          }
+        }}
+      >
+        <SheetContent
+          side="bottom"
+          className="flex max-h-[70vh] flex-col gap-0 overflow-hidden rounded-t-2xl border-x-0 p-0"
+        >
+          {taskSheetRow ? (
+            <>
+              <SheetHeader className="shrink-0 border-b px-4 pb-3 pt-2">
+                <SheetTitle className="pr-10 text-left text-base">
+                  {taskSheetStep === "detail"
+                    ? taskSheetRow.task.name
+                    : "跟进完成"}
+                </SheetTitle>
+                <SheetDescription className="text-left">
+                  {taskSheetStep === "detail"
+                    ? `${channelShort(taskSheetRow.task.channel)} · ${taskTypeShort(taskSheetRow.task.task_type)} · ${targetLabel(taskSheetRow)}`
+                    : "填写下次联系时间与备注，将关闭本条跟进任务并生成新任务"}
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+                {taskSheetStep === "detail" ? (
+                  (() => {
+                    const t = taskSheetRow.task;
+                    const tg = taskSheetRow.target;
+                    const canAct =
+                      t.status !== "done" &&
+                      t.status !== "cancelled" &&
+                      tg.status !== "done" &&
+                      tg.status !== "failed";
+                    return (
+                      <div className="space-y-4 text-sm">
+                        <div className="space-y-1 rounded-lg border border-border/60 bg-muted/30 p-3">
+                          <p>
+                            <span className="text-muted-foreground">截止时间：</span>
+                            {t.deadline
+                              ? new Date(t.deadline).toLocaleString("zh-CN")
+                              : "—"}
+                          </p>
+                          <p>
+                            <span className="text-muted-foreground">任务状态：</span>
+                            {taskStatusLabel(t.status, t.deadline)}
+                          </p>
+                          <p>
+                            <span className="text-muted-foreground">对象状态：</span>
+                            {targetStatusLabel(tg.status)}
+                          </p>
+                        </div>
+                        {!canAct ? (
+                          <p className="text-center text-muted-foreground">当前任务已结束</p>
+                        ) : t.task_type === "follow_up" ? (
+                          <Button
+                            type="button"
+                            className="w-full"
+                            size="lg"
+                            onClick={() => setTaskSheetStep("follow")}
+                          >
+                            完成任务
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            className="w-full"
+                            size="lg"
+                            onClick={() => void completeTaskTargetSimple(taskSheetRow)}
+                          >
+                            完成任务
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })()
+                ) : (
+                  <div className="space-y-4">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="-ml-2 text-muted-foreground"
+                      onClick={() => setTaskSheetStep("detail")}
+                    >
+                      ← 返回详情
+                    </Button>
+                    {(() => {
+                      const lid = resolveLeadIdForTask(taskSheetRow, leads);
+                      const lr = leads.find((l) => l.id === lid);
+                      const storedLeadPhone = asTrimmedString(lr?.phone);
+                      const needPhoneExtra =
+                        !storedLeadPhone && !asTrimmedString(profile?.phone);
+                      const effPhone =
+                        storedLeadPhone ||
+                        followPhoneExtra.trim() ||
+                        asTrimmedString(profile?.phone);
+                      const canPickPhone = Boolean(effPhone);
+                      return (
+                        <>
+                          {needPhoneExtra ? (
+                            <div className="space-y-2">
+                              <Label htmlFor="h5-follow-phone">手机号（无主档时填写）</Label>
+                              <Input
+                                id="h5-follow-phone"
+                                value={followPhoneExtra}
+                                onChange={(e) => setFollowPhoneExtra(e.target.value)}
+                                placeholder="用于电话跟进与生成任务"
+                                autoComplete="tel"
+                              />
+                            </div>
+                          ) : null}
+
+                          <div className="space-y-2">
+                            <Label htmlFor="h5-follow-next">
+                              下次联系时间 <span className="text-destructive">*</span>
+                            </Label>
+                            <Input
+                              id="h5-follow-next"
+                              type="datetime-local"
+                              value={followNextAt}
+                              onChange={(e) => setFollowNextAt(e.target.value)}
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label>跟进方式</Label>
+                            <div className="flex gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant={followMethod === "phone" ? "default" : "outline"}
+                                disabled={!canPickPhone}
+                                title={
+                                  !canPickPhone ? "请先填写可用手机号" : undefined
+                                }
+                                onClick={() => setFollowMethod("phone")}
+                              >
+                                电话
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant={followMethod === "wecom" ? "default" : "outline"}
+                                onClick={() => setFollowMethod("wecom")}
+                              >
+                                微信
+                              </Button>
+                            </div>
+                          </div>
+
+                          {followMethod === "phone" ? (
+                            <div className="space-y-2">
+                              <Label htmlFor="h5-follow-call">通话时长（秒，选填）</Label>
+                              <Input
+                                id="h5-follow-call"
+                                inputMode="numeric"
+                                value={followCallSec}
+                                onChange={(e) =>
+                                  setFollowCallSec(e.target.value.replace(/\D/g, ""))
+                                }
+                                placeholder="例如 180"
+                              />
+                            </div>
+                          ) : null}
+
+                          <div className="space-y-2">
+                            <Label htmlFor="h5-follow-remark">跟进备注</Label>
+                            <Textarea
+                              id="h5-follow-remark"
+                              value={followRemark}
+                              onChange={(e) => setFollowRemark(e.target.value)}
+                              rows={4}
+                              placeholder="本次跟进说明"
+                            />
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+
+              {taskSheetStep === "follow" ? (
+                <SheetFooter className="shrink-0 border-t bg-background px-4 py-3">
+                  <Button
+                    type="button"
+                    className="w-full"
+                    size="lg"
+                    disabled={followSubmitting}
+                    onClick={() => void submitFollowComplete()}
+                  >
+                    {followSubmitting ? "提交中…" : "提交并完成"}
+                  </Button>
+                </SheetFooter>
+              ) : null}
+            </>
+          ) : null}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
