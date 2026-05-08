@@ -11,8 +11,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { fetchCustomerOptions, type CustomerOption } from "@/lib/customer-options";
-import { asTrimmedString, formatHttpApiDetail } from "@/lib/utils";
+import {
+  fetchCustomerOptions,
+  type CustomerOption,
+} from "@/lib/customer-options";
+import { asTrimmedString, cn, formatHttpApiDetail } from "@/lib/utils";
 
 import { DEFAULT_LEAD_OWNER_USERID } from "./lead-drawer-panel";
 
@@ -38,6 +41,10 @@ type CreateLeadSheetProps = {
   onSuccess?: () => void;
   formId?: string;
   customerFollowUserid?: string;
+  /** 从客户中心等入口打开时锁定当前客户，不可改选 */
+  lockCustomer?: boolean;
+  /** H5 等场景从底部弹出 */
+  sheetSide?: "right" | "bottom";
 };
 
 type FormValues = {
@@ -59,6 +66,8 @@ export function CreateLeadSheet({
   onSuccess,
   formId = "create-lead",
   customerFollowUserid = "ShiFengwei",
+  lockCustomer = false,
+  sheetSide = "right",
 }: CreateLeadSheetProps) {
   const [form] = Form.useForm<FormValues>();
   const [options, setOptions] = React.useState<CustomerOption[]>([]);
@@ -78,10 +87,37 @@ export function CreateLeadSheet({
     fetchCustomerOptions(fu)
       .then((opts) => {
         if (cancelled) return;
-        setOptions(opts);
         const ext = asTrimmedString(prefill.external_userid);
-        if (ext && opts.some((o) => o.external_userid === ext)) {
-          const row = opts.find((o) => o.external_userid === ext);
+        let merged: CustomerOption[] = opts;
+        if (lockCustomer && ext && !opts.some((o) => o.external_userid === ext)) {
+          merged = [
+            {
+              external_userid: ext,
+              label:
+                asTrimmedString(prefill.customer_name) ||
+                asTrimmedString(prefill.phone) ||
+                ext,
+              phone: asTrimmedString(prefill.phone) || null,
+            },
+            ...opts,
+          ];
+        }
+        setOptions(merged);
+
+        if (lockCustomer && ext) {
+          const row = merged.find((o) => o.external_userid === ext);
+          form.setFieldsValue({
+            external_userid: ext,
+            phone: asTrimmedString(
+              row?.phone ?? prefill.phone ?? ""
+            ),
+            customer_name:
+              row?.label ?? asTrimmedString(prefill.customer_name),
+            intent_model: "",
+            customer_level: "N级",
+          });
+        } else if (ext && merged.some((o) => o.external_userid === ext)) {
+          const row = merged.find((o) => o.external_userid === ext);
           form.setFieldsValue({
             external_userid: ext,
             phone: row ? asTrimmedString(row.phone) : "",
@@ -120,6 +156,7 @@ export function CreateLeadSheet({
     prefill.customer_name,
     prefill.follow_userid,
     customerFollowUserid,
+    lockCustomer,
     form,
   ]);
 
@@ -179,15 +216,39 @@ export function CreateLeadSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="flex w-full flex-col sm:max-w-md">
-        <SheetHeader>
+      <SheetContent
+        side={sheetSide}
+        className={cn(
+          "flex w-full flex-col overflow-y-auto",
+          sheetSide === "bottom"
+            ? "max-h-[88vh] rounded-t-2xl border-x-0 p-0 pt-2"
+            : "sm:max-w-md"
+        )}
+      >
+        <SheetHeader
+          className={cn(sheetSide === "bottom" && "px-4 pb-2 pt-1")}
+        >
           <SheetTitle>新建线索</SheetTitle>
           <SheetDescription>
-            选择企微客户后将带出手机号与称呼；也可不选客户、仅填手机号。每个企微外部联系人仅允许一条线索。默认归属人：
-            {DEFAULT_LEAD_OWNER_USERID}
+            {lockCustomer ? (
+              <>
+                当前客户已固定，将为此客户创建线索。每个企微外部联系人仅允许一条线索。默认归属人：
+                {DEFAULT_LEAD_OWNER_USERID}
+              </>
+            ) : (
+              <>
+                选择企微客户后将带出手机号与称呼；也可不选客户、仅填手机号。每个企微外部联系人仅允许一条线索。默认归属人：
+                {DEFAULT_LEAD_OWNER_USERID}
+              </>
+            )}
           </SheetDescription>
         </SheetHeader>
-        <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1">
+        <div
+          className={cn(
+            "mt-4 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1",
+            sheetSide === "bottom" && "mt-2 px-4 pb-6"
+          )}
+        >
           <Form<FormValues>
             id={formId}
             form={form}
@@ -201,11 +262,11 @@ export function CreateLeadSheet({
           >
             <Form.Item name="external_userid" label="客户">
               <Select
-                allowClear
+                allowClear={!lockCustomer}
                 showSearch
                 optionFilterProp="label"
                 loading={loadingOptions}
-                disabled={loadingOptions}
+                disabled={loadingOptions || lockCustomer}
                 placeholder={
                   loadingOptions ? "加载客户列表…" : "不选则仅填下方手机号"
                 }
@@ -218,11 +279,13 @@ export function CreateLeadSheet({
                 }}
               />
               <p className="mt-1 text-xs text-muted-foreground">
-                列表来自当前跟进成员下的企微客户（
-                {asTrimmedString(prefill.follow_userid) ||
-                  asTrimmedString(customerFollowUserid) ||
-                  "ShiFengwei"}
-                ）。
+                {lockCustomer
+                  ? "客户已与当前档案绑定，不可更改。"
+                  : `列表来自当前跟进成员下的企微客户（${
+                      asTrimmedString(prefill.follow_userid) ||
+                      asTrimmedString(customerFollowUserid) ||
+                      "ShiFengwei"
+                    }）。`}
               </p>
             </Form.Item>
 

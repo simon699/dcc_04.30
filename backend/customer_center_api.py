@@ -415,6 +415,7 @@ def customer_timeline(
                         "task_name": task.name,
                         "target_remark": tr or None,
                         "channel": task.channel,
+                        "task_type": task.task_type,
                     }
                 )
 

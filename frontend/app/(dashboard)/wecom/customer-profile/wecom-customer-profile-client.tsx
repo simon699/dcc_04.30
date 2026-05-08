@@ -41,6 +41,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CreateLeadSheet } from "@/components/leads/create-lead-sheet";
 import type { ApiLeadDetail } from "@/components/leads/lead-drawer-panel";
 import { copyPlainText } from "@/lib/copy-to-clipboard";
 import { formatCnWallClockApi } from "@/lib/datetime-cn";
@@ -199,6 +200,15 @@ function followMethodCn(m?: string | null): string {
   return (m ?? "").trim() || "—";
 }
 
+/** 企微 H5：跟进类仅展示线索跟进；创建/完成任务节点仅群发任务展示 */
+function timelineEventVisibleOnWecomH5(ev: TimelineEvent): boolean {
+  if (ev.kind === "lead_follow") return true;
+  if (ev.kind === "task_created" || ev.kind === "task_completed") {
+    return ev.task_type === "mass_send";
+  }
+  return true;
+}
+
 function timelineKindBadge(kind: string) {
   if (kind === "lead_follow") {
     return (
@@ -288,6 +298,7 @@ export function WecomCustomerProfileClient({
   const [loadingLeads, setLoadingLeads] = React.useState(false);
   const [tasks, setTasks] = React.useState<ApiTaskRow[]>([]);
   const [loadingTasks, setLoadingTasks] = React.useState(false);
+  const [createLeadOpen, setCreateLeadOpen] = React.useState(false);
 
   React.useEffect(() => {
     if (!corpId.trim() || !agentId.trim()) return;
@@ -807,6 +818,11 @@ export function WecomCustomerProfileClient({
     return [...new Set([...a, ...b])];
   }, [profile?.tags_json, profile?.tag_id_json]);
 
+  const wecomTimeline = React.useMemo(
+    () => timeline.filter(timelineEventVisibleOnWecomH5),
+    [timeline]
+  );
+
   return (
     <div className="mx-auto w-full max-w-md space-y-4 pb-6">
       {externalContact.kind === "loading" ? (
@@ -906,8 +922,11 @@ export function WecomCustomerProfileClient({
       ) : null}
 
       {externalContact.kind === "success" && profile ? (
-        <Tabs defaultValue="timeline" className="w-full">
+        <Tabs defaultValue="tasks" className="w-full">
           <TabsList variant="line" className="w-full flex-wrap justify-start bg-transparent p-0">
+            <TabsTrigger value="tasks" className="px-3 py-2">
+              任务
+            </TabsTrigger>
             <TabsTrigger value="timeline" className="px-3 py-2">
               客户轨迹
             </TabsTrigger>
@@ -919,7 +938,7 @@ export function WecomCustomerProfileClient({
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="timeline" className="mt-3 space-y-3">
+          <TabsContent value="tasks" className="mt-3 space-y-3">
             <Card>
               <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
                 <CardTitle className="text-base">当前任务</CardTitle>
@@ -1017,22 +1036,24 @@ export function WecomCustomerProfileClient({
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
 
+          <TabsContent value="timeline" className="mt-3 space-y-3">
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">动态轨迹</CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  仅展示当前侧边栏客户在本系统的跟进记录与任务动态。
+                  跟进类仅展示线索跟进；群发任务另含创建任务与任务完成记录。
                 </p>
               </CardHeader>
               <CardContent>
                 {loadingTimeline ? (
                   <p className="text-sm text-muted-foreground">加载中…</p>
-                ) : timeline.length === 0 ? (
+                ) : wecomTimeline.length === 0 ? (
                   <p className="text-sm text-muted-foreground">暂无记录</p>
                 ) : (
                   <ul className="space-y-4">
-                    {timeline.map((ev, i) => (
+                    {wecomTimeline.map((ev, i) => (
                       <li
                         key={`${ev.kind}-${ev.at}-${ev.task_id ?? ev.lead_id ?? ""}-${i}`}
                         className="relative border-l-2 border-primary/25 pl-4"
@@ -1060,18 +1081,6 @@ export function WecomCustomerProfileClient({
                               <p className="text-sm text-foreground">
                                 <span className="text-muted-foreground">备注：</span>
                                 {(ev.remark ?? ev.detail ?? "").trim()}
-                              </p>
-                            ) : null}
-                            {(ev.completed_prior_task_name ?? "").trim() ? (
-                              <p>
-                                <span className="text-foreground/80">已完成任务：</span>
-                                {(ev.completed_prior_task_name ?? "").trim()}
-                              </p>
-                            ) : null}
-                            {(ev.new_follow_task_name ?? "").trim() ? (
-                              <p>
-                                <span className="text-foreground/80">新建任务：</span>
-                                {(ev.new_follow_task_name ?? "").trim()}
                               </p>
                             ) : null}
                           </div>
@@ -1112,7 +1121,16 @@ export function WecomCustomerProfileClient({
                 {loadingLeads ? (
                   <p className="text-muted-foreground">加载中…</p>
                 ) : leads.length === 0 ? (
-                  <p className="text-muted-foreground">暂无线索</p>
+                  <div className="space-y-3 py-1">
+                    <p className="text-muted-foreground">暂无线索，可为当前客户新建一条线索。</p>
+                    <Button
+                      type="button"
+                      className="w-full"
+                      onClick={() => setCreateLeadOpen(true)}
+                    >
+                      创建线索
+                    </Button>
+                  </div>
                 ) : loadingLeadDetail && !leadDetail ? (
                   <p className="text-muted-foreground">加载详情…</p>
                 ) : leadDetail ? (
@@ -1229,6 +1247,27 @@ export function WecomCustomerProfileClient({
             </Card>
           </TabsContent>
         </Tabs>
+      ) : null}
+
+      {profile ? (
+        <CreateLeadSheet
+          open={createLeadOpen}
+          onOpenChange={setCreateLeadOpen}
+          prefill={{
+            phone: phoneDisplay || "",
+            external_userid: profile.external_userid,
+            customer_name: displayName,
+            follow_userid: profile.follow_userid,
+          }}
+          lockCustomer
+          sheetSide="bottom"
+          formId="wecom-h5-create-lead"
+          customerFollowUserid={fu}
+          onSuccess={() => {
+            void loadLeads();
+            void loadProfile();
+          }}
+        />
       ) : null}
 
       <Sheet

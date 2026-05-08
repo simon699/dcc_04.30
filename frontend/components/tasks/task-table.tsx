@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Megaphone, MessageCircle, Phone } from "lucide-react";
 import { toast } from "sonner";
 import { env as wecomEnv } from "@wecom/jssdk";
@@ -128,6 +128,7 @@ export function TaskTable({
   onChannelTabChange,
   refreshNonce = 0,
 }: TaskTableProps) {
+  const router = useRouter();
   const openDrawer = useUiStore((s) => s.openDrawer);
   const [openingChat, setOpeningChat] = React.useState<string | null>(null);
   const [massSendRow, setMassSendRow] = React.useState<string | null>(null);
@@ -387,13 +388,23 @@ export function TaskTable({
                           ) : null}
                           {t.channel === "phone" && phone ? (
                             tg.target_lead_id ? (
-                              <Link
-                                href={`/leads/${tg.target_lead_id}/edit?entry=phone`}
-                                className={cn(buttonVariants({ size: "sm" }), "gap-1")}
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="gap-1"
+                                aria-label="拨打电话并打开线索跟进"
+                                onClick={() => {
+                                  void router.push(
+                                    `/leads/${tg.target_lead_id}/edit?entry=phone`
+                                  );
+                                  requestAnimationFrame(() => {
+                                    window.location.href = `tel:${phone}`;
+                                  });
+                                }}
                               >
                                 <Phone className="size-3.5" />
                                 电话
-                              </Link>
+                              </Button>
                             ) : (
                               <a
                                 href={`tel:${phone}`}

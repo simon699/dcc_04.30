@@ -645,6 +645,7 @@ export function CustomerCenterDrawerPanel({ follow_userid, external_userid }: Pr
         open={createLeadOpen}
         onOpenChange={setCreateLeadOpen}
         prefill={createLeadPrefill}
+        lockCustomer
         onSuccess={() => {
           void loadLeads();
           void loadProfile();
