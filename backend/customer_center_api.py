@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from math import ceil
 from typing import Any
 
@@ -47,6 +47,54 @@ def _task_type_label(tt: str | None) -> str:
     if x == "follow_up":
         return "跟进"
     return tt or "—"
+
+
+def _related_follow_up_tasks_around(
+    sess: Session,
+    ext: str,
+    phones: list[str],
+    follow_at: datetime,
+) -> tuple[str | None, str | None]:
+    """线索跟进同一时刻关联的跟进任务：刚完成的对象与新建任务名称。"""
+    tgt_conds: list[Any] = [WecomTaskTarget.target_external_userid == ext]
+    for ph in phones:
+        tgt_conds.append(WecomTaskTarget.target_phone == ph)
+    tgt_where = or_(*tgt_conds)
+
+    window = timedelta(seconds=20)
+    w0 = follow_at - window
+    w1 = follow_at + window
+
+    completed_row = sess.execute(
+        select(WecomTaskTarget, WecomTask)
+        .join(WecomTask, WecomTaskTarget.task_id == WecomTask.id)
+        .where(
+            tgt_where,
+            WecomTask.task_type == "follow_up",
+            WecomTaskTarget.completed_at.isnot(None),
+            WecomTaskTarget.completed_at >= w0,
+            WecomTaskTarget.completed_at <= w1,
+        )
+        .order_by(WecomTaskTarget.completed_at.desc())
+        .limit(1)
+    ).first()
+    completed_name = completed_row[1].name if completed_row else None
+
+    created_row = sess.execute(
+        select(WecomTaskTarget, WecomTask)
+        .join(WecomTask, WecomTaskTarget.task_id == WecomTask.id)
+        .where(
+            tgt_where,
+            WecomTask.task_type == "follow_up",
+            WecomTask.created_at >= w0,
+            WecomTask.created_at <= w1,
+        )
+        .order_by(WecomTask.created_at.desc())
+        .limit(1)
+    ).first()
+    new_name = created_row[1].name if created_row else None
+
+    return completed_name, new_name
 
 
 def _require_mysql() -> None:
@@ -286,18 +334,24 @@ def customer_timeline(
             ).all()
             for f in follows:
                 rm = (f.remark or "").strip()
-                events.append(
-                    {
-                        "at": _dt_iso(f.follow_at),
-                        "kind": "lead_follow",
-                        "title": "线索跟进",
-                        "detail": rm,
-                        "remark": rm,
-                        "next_follow_at": _dt_iso(f.next_follow_at),
-                        "follow_method": f.follow_method,
-                        "lead_id": str(f.lead_id),
-                    }
+                prior_name, next_name = _related_follow_up_tasks_around(
+                    sess, ext, phones, f.follow_at
                 )
+                ev_follow: dict[str, Any] = {
+                    "at": _dt_iso(f.follow_at),
+                    "kind": "lead_follow",
+                    "title": "线索跟进",
+                    "detail": rm,
+                    "remark": rm,
+                    "next_follow_at": _dt_iso(f.next_follow_at),
+                    "follow_method": f.follow_method,
+                    "lead_id": str(f.lead_id),
+                }
+                if prior_name:
+                    ev_follow["completed_prior_task_name"] = prior_name
+                if next_name:
+                    ev_follow["new_follow_task_name"] = next_name
+                events.append(ev_follow)
 
         tgt_conds: list[Any] = [WecomTaskTarget.target_external_userid == ext]
         for ph in phones:

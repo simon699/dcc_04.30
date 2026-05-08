@@ -61,6 +61,8 @@ type TimelineEvent = {
   channel?: string | null;
   task_type?: string | null;
   target_remark?: string | null;
+  completed_prior_task_name?: string | null;
+  new_follow_task_name?: string | null;
 };
 
 type LeadRow = {
@@ -791,6 +793,9 @@ export function WecomCustomerProfileClient({
                       <TableRow>
                         <TableHead>任务名称</TableHead>
                         <TableHead className="hidden sm:table-cell whitespace-nowrap">
+                          类型
+                        </TableHead>
+                        <TableHead className="hidden sm:table-cell whitespace-nowrap">
                           截止时间
                         </TableHead>
                         <TableHead className="hidden sm:table-cell">状态</TableHead>
@@ -813,11 +818,19 @@ export function WecomCustomerProfileClient({
                                 {t.name}
                               </button>
                               <div className="mt-1 text-xs text-muted-foreground sm:hidden">
+                                <Badge variant="secondary" className="mr-1 font-normal">
+                                  {taskTypeShort(t.task_type)}
+                                </Badge>
                                 {t.deadline
                                   ? new Date(t.deadline).toLocaleString("zh-CN")
                                   : "—"}{" "}
                                 · {channelShort(t.channel)} · {statusLine}
                               </div>
+                            </TableCell>
+                            <TableCell className="hidden sm:table-cell">
+                              <Badge variant="secondary" className="font-normal">
+                                {taskTypeShort(t.task_type)}
+                              </Badge>
                             </TableCell>
                             <TableCell className="hidden whitespace-nowrap text-sm sm:table-cell">
                               {t.deadline
@@ -880,6 +893,18 @@ export function WecomCustomerProfileClient({
                               <p className="text-sm text-foreground">
                                 <span className="text-muted-foreground">备注：</span>
                                 {(ev.remark ?? ev.detail ?? "").trim()}
+                              </p>
+                            ) : null}
+                            {(ev.completed_prior_task_name ?? "").trim() ? (
+                              <p>
+                                <span className="text-foreground/80">已完成任务：</span>
+                                {(ev.completed_prior_task_name ?? "").trim()}
+                              </p>
+                            ) : null}
+                            {(ev.new_follow_task_name ?? "").trim() ? (
+                              <p>
+                                <span className="text-foreground/80">新建任务：</span>
+                                {(ev.new_follow_task_name ?? "").trim()}
                               </p>
                             ) : null}
                           </div>

@@ -24,6 +24,7 @@ export type ApiTaskDetail = {
     id: number;
     target_external_userid: string | null;
     target_phone: string | null;
+    target_display_name?: string | null;
     status: string;
     started_at: string | null;
     completed_at: string | null;
@@ -190,10 +191,19 @@ export function TaskDetailPanel({
               const key = String(t.id);
               const on =
                 highlightTargetId != null && highlightTargetId === key;
-              const label =
-                t.target_external_userid?.trim() ||
-                t.target_phone?.trim() ||
+              const disp =
+                (t.target_display_name ?? "").trim() ||
+                (t.target_external_userid ?? "").trim() ||
+                (t.target_phone ?? "").trim() ||
                 "—";
+              const rawExt = (t.target_external_userid ?? "").trim();
+              const rawPh = (t.target_phone ?? "").trim();
+              const sub =
+                disp !== rawExt && rawExt
+                  ? rawExt
+                  : disp !== rawPh && rawPh
+                    ? rawPh
+                    : "";
               return (
                 <li
                   key={t.id}
@@ -204,11 +214,16 @@ export function TaskDetailPanel({
                   }
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-mono text-xs">{label}</span>
+                    <span className="text-sm font-medium">{disp}</span>
                     <Badge variant="outline" className="font-normal">
                       {targetStatusLabel(t.status)}
                     </Badge>
                   </div>
+                  {sub ? (
+                    <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+                      {sub}
+                    </p>
+                  ) : null}
                   <div className="mt-1 text-xs text-muted-foreground">
                     开始 {formatDt(t.started_at)} · 完成 {formatDt(t.completed_at)}
                   </div>

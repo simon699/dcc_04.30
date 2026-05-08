@@ -342,7 +342,16 @@ def get_task(task_id: int) -> dict[str, Any]:
         if t is None:
             raise HTTPException(status_code=404, detail="任务不存在")
         targets = sorted(t.targets, key=lambda x: x.id)
-        return _serialize_task(t, targets)
+        pairs = [(t, tg) for tg in targets]
+        name_map = _batch_target_display_names(sess, pairs)
+        out = _serialize_task(t, targets)
+        aug: list[dict[str, Any]] = []
+        for tg in targets:
+            row = _serialize_target(tg)
+            row["target_display_name"] = name_map.get(tg.id, "—")
+            aug.append(row)
+        out["targets"] = aug
+        return out
     finally:
         sess.close()
 
