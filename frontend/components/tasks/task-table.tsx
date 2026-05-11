@@ -348,7 +348,7 @@ export function TaskTable({
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
-                          {t.channel === "wecom" ? (
+                          {t.channel === "wecom" && t.task_type !== "mass_send" ? (
                             <Button
                               size="sm"
                               variant="default"
