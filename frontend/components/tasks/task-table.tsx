@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { MessageCircle, Phone } from "lucide-react";
+import { Megaphone, MessageCircle, Phone } from "lucide-react";
 import { toast } from "sonner";
 import { env as wecomEnv } from "@wecom/jssdk";
 
@@ -19,6 +19,10 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useUiStore } from "@/lib/store/ui-store";
+import {
+  isWeComMacMassSendLimited,
+  shareMassSendTextToExternalContacts,
+} from "@/lib/wecom-mass-send";
 import { tryOpenWecomExternalUserChat } from "@/lib/wecom-open-chat";
 import { asTrimmedString, cn } from "@/lib/utils";
 
@@ -127,6 +131,7 @@ export function TaskTable({
   const router = useRouter();
   const openDrawer = useUiStore((s) => s.openDrawer);
   const [openingChat, setOpeningChat] = React.useState<string | null>(null);
+  const [massSendRow, setMassSendRow] = React.useState<string | null>(null);
   const tab = channelTab;
   const [keyword, setKeyword] = React.useState("");
   const [taskStatus, setTaskStatus] = React.useState("");
@@ -408,6 +413,56 @@ export function TaskTable({
                                 电话
                               </a>
                             )
+                            ) : null}
+                          {t.task_type === "mass_send" &&
+                          (t.mass_content ?? "").trim() &&
+                          (tg.target_external_userid ?? "").trim() ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1"
+                              disabled={
+                                massSendRow === row.row_id ||
+                                isWeComMacMassSendLimited()
+                              }
+                              title={
+                                isWeComMacMassSendLimited()
+                                  ? "Mac 端网页无法带入群发内容与客户，请复制后或在手机/Windows 客户端操作"
+                                  : "企业微信内调起群发助手（shareToExternalContact）"
+                              }
+                              aria-label="调起企微群发"
+                              onClick={() => {
+                                void (async () => {
+                                  const ext = (
+                                    tg.target_external_userid ?? ""
+                                  ).trim();
+                                  const txt = (t.mass_content ?? "").trim();
+                                  if (!ext || !txt) return;
+                                  setMassSendRow(row.row_id);
+                                  try {
+                                    const r =
+                                      await shareMassSendTextToExternalContacts(
+                                        {
+                                          content: txt,
+                                          externalUserIds: [ext],
+                                        }
+                                      );
+                                    if (!r.ok) {
+                                      toast.error(r.message ?? "发起群发失败");
+                                      return;
+                                    }
+                                    toast.success(
+                                      "已调起群发助手，请在企业微信中确认发送"
+                                    );
+                                  } finally {
+                                    setMassSendRow(null);
+                                  }
+                                })();
+                              }}
+                            >
+                              <Megaphone className="size-3.5" />
+                              {massSendRow === row.row_id ? "调用中…" : "群发"}
+                            </Button>
                           ) : null}
                         </div>
                       </TableCell>
