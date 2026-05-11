@@ -8,7 +8,6 @@ import {
   LayoutDashboard,
   Settings2,
   Sparkles,
-  UsersRound,
 } from "lucide-react";
 
 import {
@@ -30,7 +29,6 @@ const nav = [
   { href: "/panel", label: "工作台", icon: LayoutDashboard },
   { href: "/tasks", label: "任务中心", icon: CheckSquare },
   { href: "/leads", label: "线索中心", icon: BookUser },
-  { href: "/customers", label: "客户中心", icon: UsersRound },
   { href: "/rules", label: "设置", icon: Settings2 },
 ] as const;
 

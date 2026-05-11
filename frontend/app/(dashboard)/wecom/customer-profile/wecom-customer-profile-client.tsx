@@ -196,7 +196,7 @@ function channelShort(ch: string): string {
 function followMethodCn(m?: string | null): string {
   const x = (m ?? "").trim().toLowerCase();
   if (x === "phone") return "电话";
-  if (x === "wecom") return "微信";
+  if (x === "wecom") return "企微";
   return (m ?? "").trim() || "—";
 }
 
@@ -1518,7 +1518,7 @@ export function WecomCustomerProfileClient({
                               <Radio.Button value="phone" disabled={!canPickPhone}>
                                 电话
                               </Radio.Button>
-                              <Radio.Button value="wecom">微信</Radio.Button>
+                              <Radio.Button value="wecom">企微</Radio.Button>
                             </Radio.Group>
                           </div>
 
@@ -1677,7 +1677,7 @@ export function WecomCustomerProfileClient({
                       >
                         电话
                       </Radio.Button>
-                      <Radio.Button value="wecom">微信</Radio.Button>
+                      <Radio.Button value="wecom">企微</Radio.Button>
                     </Radio.Group>
                   </div>
                   {phoneFollowMethod === "phone" ? (
